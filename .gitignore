@@ -1,0 +1,13 @@
+# Ignore following
+Data/*
+LitSurvey/*
+Presentation/
+Report/
+Screenshot_20190606-105518~2.jpg
+Soft/
+Untitled Document 1
+cavity_design.jam
+finding_DAC_on_network.txt
+ml_machine_setup.txt
+src/Testing/*
+src/modbus/*
