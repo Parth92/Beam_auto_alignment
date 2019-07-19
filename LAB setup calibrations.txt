@@ -1,0 +1,24 @@
+LAB setup calibrations
+
+1. Pylon image grab at 128x128, time it takes, max speed
+2. Steering mirror PZT range - i/p voltage range 
+	- https://www.thorlabs.com/newgrouppage9.cfm?objectgroup_ID=231
+	- Piezo Angular Range 		:	±275 µrad 	(but required range was 5.5 mrad)
+	- Minimum Step Size 		:	0.37 µrad per 0.1 V Step 
+	- Piezo Control Voltage 	:	0 to 150 V
+	- Mechanical Angular Range 	:	±5° (±87 mrad)
+
+OR
+
+Piezo Angular Range 	±73 µrad
+Piezo Linear Travel 	±4 µm
+Minimum Step Size 	0.3 µrad
+Piezo Control Voltage 	0 to 150 V
+
+
+3. Cavity mirror PZT range - i/p voltage range
+4. DAC time lag
+5. How fast is safe?
+6. linearize the i/p so that cavity PZT moves only in one dir
+
+Using device  acA720-290gm
