@@ -11,3 +11,4 @@ finding_DAC_on_network.txt
 ml_machine_setup.txt
 src/Testing/*
 src/modbus/*
+src/__pycache__/*
