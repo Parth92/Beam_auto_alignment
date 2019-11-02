@@ -238,3 +238,199 @@ def Find_mode2(img_loc, separation1=10, Sigma1=1, Width=10, thresh=0.5, show_ada
                 if test_consistency(mode, peaks) or corner==3:
                     if show_ada_thresh or show_peaks or show_basis: plt.show()
                     return mode
+
+
+
+################################ Beam alignment functions ################################
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import cm
+# from pypylon import pylon
+# from pypylon import genicam
+# Importing busworks
+# import busworks
+# import keras
+# from keras import backend as k
+# from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+import tensorflow as tf
+# import pickle
+# from math import factorial
+# from copy import deepcopy
+# from tqdm import tqdm
+# import datetime
+import time
+# import os
+# import sys
+
+
+def read_mode(Img):
+    Img /= np.max(Img)
+    Img = 1. - Img
+    plt.imshow(Img[::-1], cmap=cm.binary_r)
+    plt.colorbar()
+    plt.show()
+    mode = cnn.predict(Img[::-1].reshape(1,n_pixl,n_pixl,1))
+    probs = cnn.predict_proba(Img[::-1].reshape(1,n_pixl,n_pixl,1))
+    print(probs)
+    mode = loaded_Encoder['label_enc'].inverse_transform(loaded_Encoder['one_hot_enc'].\
+                                                inverse_transform(mode).astype('int'))
+    return mode
+
+def pad_and_resize_image(image):
+    # padding with const value of first pixel in image
+    im_new = np.ones((max(image.shape),max(image.shape)))*image[0,0]
+    pad = int((max(image.shape)-min(image.shape))/2)
+    im_new[pad:-pad,:] = image
+    # resize 
+    im = tf.image.resize_nearest_neighbor(
+        im_new.reshape(1, im_new.shape[0], im_new.shape[1], 1),
+        (n_pixl,n_pixl),
+        align_corners=False,
+        name=None
+    )
+    with sess.as_default():
+        im_new = im.eval()
+    im_new = im_new[0,:,:,0]
+    return im_new
+
+def Capture_image(exposure):
+    Dat = camera.GrabOne(exposure)
+    img = Dat.Array
+    return img
+
+def sample_d(Rng, shape=pop_size):
+    """
+    Takes i/p range in umits of beam waist at the waist location.
+    Outputs sets of deltas (in radians) to be fed to steering mirrors.
+    O/P shape : pop_size
+    """
+    delta = np.random.uniform(low=-Rng, high=Rng, size=shape)
+    # CM pzt does not take -ve values
+    delta[:,shape[1]-1] = np.abs(delta[:,shape[1]-1])
+    delta *= scale_params
+    return delta
+
+def scan_cavity(size):
+    """
+    Takes i/p range in umits of beam waist at the waist location.
+    Outputs sets of deltas (in radians) to be fed to steering mirrors.
+    O/P shape : pop_size
+    """
+    delta_z = np.random.uniform(low=0, high=1, size=size)
+    delta_z *= scale_params[4]
+    return delta_z
+
+def Set_Voltage(Beam_status):
+    ip_V = Beam_status * PZT_scaling
+    # making sure that the DAC voltages remain in the required range
+    # if (np.abs(ip_V) > V_DAC_max).sum() > 0:
+        # print('DAC I/P voltage exceeded limit! Forcefully brought down.')
+    ip_V[np.where(ip_V > V_DAC_max)] = V_DAC_max
+    ip_V[np.where(ip_V < -V_DAC_max)] = -V_DAC_max
+    try:
+        # print(Beam_status)
+        bus.set_voltages(ip_V, 1)
+    except:
+        print('Error!')
+
+
+def Reward(Beam_status, return_img=False, dummy_reward=False):
+    dummy_reward = True
+    if dummy_reward:
+        return np.random.randint(255), np.zeros((n_pixl,n_pixl))
+    else:
+        Set_Voltage(Beam_status)
+        # reward fn as total power in the image
+        Img1 = Capture_image(Exposure)
+        R_fn1 = Img1.sum()/n_pixl**2
+        # R_fn1 = Img1.max()
+        return R_fn1, Img1
+
+def calc_pop_fitness(Current_beam_status, New_pop_deltas, fitness, only_offsprings=False):
+    """
+    Calculating the fitness value of each solution in the current population.
+    Also returns the current beam location (after adding the steps taken so far)
+    """
+    # if only_offsprings:
+    #     range_vals = range(num_parents_mating, pop_per_gen)
+    # else:
+    #     range_vals = range(pop_per_gen)
+    range_vals = range(pop_per_gen)
+    for ii in range_vals:
+        # take the delta step
+        Current_beam_status += New_pop_deltas[ii]
+        # cumulatively subtracting each delta step from all deltas
+        New_pop_deltas -= New_pop_deltas[ii]
+        R_new, _ = Reward(Current_beam_status, return_img=False)
+        fitness[ii] = R_new
+    return Current_beam_status, New_pop_deltas, fitness
+
+def select_mating_pool(pop, fitness, num_parents_mating, show_the_best=False, save_best=False):
+    """
+    Selecting the best candidates in the current generation as parents for 
+    producing the offspring of the next generation.
+    """
+    parents = np.empty((num_parents_mating, num_params))
+    isort = np.argsort(fitness)[::-1]
+    parents_fitness = fitness[isort][:num_parents_mating]
+    parents = pop[isort][:num_parents_mating,:]
+    if show_the_best:
+        t1 = time.time() - t0
+        print('Time: {}, Fittest Parent: {}, Fitness: {}'.format(t1, parents[0], parents_fitness[0]))
+        _, Img = Reward(parents[0], return_img=True)
+        if Img.max() == 255:
+            img_is_saturated = True
+        else:
+            img_is_saturated = False
+        plt.imshow(Img[::-1], cmap=cm.binary_r)
+        plt.colorbar()
+        if save_best:
+            if gen < 10:
+                plt.savefig(ImagesFolder + '/Gen_0%d_time_%d_Power_%1.2f_alignments_%f_%f_%f_%f_endMirror_%f.png' \
+                     %(gen, (t1), parents_fitness[0], parents[0][0], \
+                       parents[0][1], parents[0][2], parents[0][3], parents[0][4]))
+            else:
+                plt.savefig(ImagesFolder + '/Gen_%d_time_%d_Power_%1.2f_alignments_%f_%f_%f_%f_endMirror_%f.png' \
+                     %(gen, (t1), parents_fitness[0], parents[0][0], \
+                       parents[0][1], parents[0][2], parents[0][3], parents[0][4]))
+        plt.show()
+    return parents, parents_fitness, img_is_saturated, Img
+
+def get_offsprings_Uniform(pairs, parents, offspring_size):
+    """create offsprings using uniform crossover"""
+    offsprings = np.empty(offspring_size)
+    nn = 0
+    for i in range(len(pairs)):
+        for j in range(num_offsprings_per_pair):
+            if nn == offspring_size[0] : break
+            while True:
+                # To make sure not all True/False
+                i_select_genes = np.random.choice([True, False], num_params)
+                if (i_select_genes.sum() != num_params) & (i_select_genes.sum() != 0): break
+            offsprings[nn][i_select_genes] = parents[pairs[i][0]][i_select_genes]
+            offsprings[nn][np.logical_not(i_select_genes)] = \
+            parents[pairs[i][1]][np.logical_not(i_select_genes)]
+            nn += 1
+    return offsprings
+
+def crossover(parents, offspring_size):
+    # get all possible pairs
+    pairs = []
+    for p1 in range(num_parents_mating):
+        for p2 in range(p1+1, num_parents_mating):
+            pairs.append([p1,p2])
+    pairs = np.array(pairs)
+    # Give preference to combinations of top performing parents
+    i_sort = np.argsort(pairs.sum(axis=1))
+    pairs = pairs[i_sort]
+    offsprings = get_offsprings_Uniform(pairs, parents, offspring_size)
+    return offsprings
+
+def mutation(Offspring_crossover, Rng):
+    # Mutation changes a single gene in each offspring randomly.
+    mutations = sample_d(Rng, shape=Offspring_crossover.shape)
+    # The random value to be added to the gene.
+    Offspring_crossover += mutations
+    return Offspring_crossover
