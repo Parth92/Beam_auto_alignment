@@ -11,7 +11,7 @@ from skimage.filters import gaussian
 def Find_Peaks(IMG, separation=10, Sigma=1, show_ada_thresh=False, show_fig=False):
     if show_ada_thresh: image_max = ndi.maximum_filter(IMG, size=separation, mode='constant')
     Smooth_img = gaussian(IMG,  sigma=Sigma)
-    coordinates = peak_local_max(Smooth_img, min_distance=separation)
+    coordinates = peak_local_max(Smooth_img, min_distance=separation, exclude_border=False)
     coordinates = np.array(coordinates)
     dummy = coordinates[:,0].copy()
     coordinates[:,0] = coordinates[:,1]
@@ -73,12 +73,12 @@ def peaks_to_mode(Peak_corner, Peaks, Width, Basis1, slope1, Basis2=[], slope2=N
     else:
         return (n-1,m-1)
 
-def Find_mode(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, Show_ada_thresh=False, Show_fig=True, corner=0, show_peaks=False):
+def Find_mode(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, show_ada_thresh=False, show_fig=True, corner=0, show_peaks=False):
     # Read image
     img = 255 - imageio.imread(img_loc)
     # thresholding and smoothing image to find peaks
     img1 = Thresh(img, thresh)
-    peaks = Find_Peaks(img1, separation=separation1, Sigma=Sigma1, show_ada_thresh=Show_ada_thresh, show_fig=Show_fig)
+    peaks = Find_Peaks(img1, separation=separation1, Sigma=Sigma1, show_ada_thresh=show_ada_thresh, show_fig=show_fig)
     if len(peaks) == 1:
         return (0,0)
     # corner point
@@ -125,7 +125,7 @@ def Find_mode(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, Show_ada_t
         corner += 1
         if corner < 4:
             mode = Find_mode(img_loc, separation1=separation1, Sigma1=Sigma1, Width=Width, thresh=thresh, 
-                             Show_ada_thresh=Show_ada_thresh, Show_fig=Show_fig, corner=corner, show_peaks=show_peaks)
+                             show_ada_thresh=show_ada_thresh, show_fig=show_fig, corner=corner, show_peaks=show_peaks)
             print(mode)
         else:
             pass
@@ -133,34 +133,43 @@ def Find_mode(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, Show_ada_t
     return mode
 
 def test_consistency(mode, Peaks):
-    if (mode[0]+1)*(mode[1]+1) < len(Peaks):
-        print('Warning: Something went wrong! \nNumber of peaks ({}) \
-        inferred from mode does not match with actual number of peaks({})'.format((mode[0]+1)*(mode[1]+1), len(Peaks)))
-        return False
-    else:
+    if (mode[0]+1)*(mode[1]+1) == len(Peaks) or (mode[0]+1)*(mode[1]+1) == len(Peaks)+1:
         return True
+    else:
+        print('Warning: Something went wrong! \nNumber of inferred peaks ({}) from mode does not match with actual number of peaks({})'.format((mode[0]+1)*(mode[1]+1), len(Peaks)))
+        return False
 
-def case1_m_0(Peaks, w=10):
+def case1_m_0(Peaks, w=10, show_basis=False):
     # bottom & top
-    i_b = Peaks[0,:].argmin()
-    i_t = Peaks[0,:].argmax()
+    i_b = Peaks[:,0].argmin()
+    i_t = Peaks[:,0].argmax()
     Peak_b = Peaks[i_b]
     Peak_t = Peaks[i_t]
     # constructing unit vect and slope
     basis, m = find_basis(Peak_b, Peak_t)
+    # Show basis vects
+    if show_basis:
+        kk = 2
+        plt.plot([Peak_b[0], Peak_b[0]+(Peak_t[0]-Peak_b[0])*kk], 
+                 [Peak_b[1], Peak_b[1]+(Peak_t[1]-Peak_b[1])*kk], 'b')
     if abs(m) > 1.:
         return (0,0)
     else:
         return peaks_to_mode(Peak_b, Peaks, w, basis, m)
 
-def case2_0_n(Peaks, w=10):
+def case2_0_n(Peaks, w=10, show_basis=False):
     # left & right
-    i_l = Peaks[:,0].argmin()
-    i_r = Peaks[:,0].argmax()
+    i_l = Peaks[:,1].argmin()
+    i_r = Peaks[:,1].argmax()
     Peak_l = Peaks[i_l]
     Peak_r = Peaks[i_r]
     # constructing unit vect and slope
     basis, m = find_basis(Peak_l, Peak_r)
+    # Show basis vects
+    if show_basis:
+        kk = 2
+        plt.plot([Peak_l[0], Peak_l[0]+(Peak_r[0]-Peak_l[0])*kk], 
+                 [Peak_l[1], Peak_l[1]+(Peak_r[1]-Peak_l[1])*kk], 'g')
     if abs(m) < 1.:
         return (0,0)
     else:
@@ -168,8 +177,8 @@ def case2_0_n(Peaks, w=10):
 
 def case3_m_n(Peaks, w=10, corner=0, show_basis=False):
     # catching 4 corner points
-    i_b = Peaks[:,1].argmin()  # bottom point
-    i_t = Peaks[:,1].argmax()  # top point
+    i_b = Peaks[:,1].argmax()  # bottom point (plot is inverted in top/bottom)
+    i_t = Peaks[:,1].argmin()  # top point
     i_r = Peaks[:,0].argmax()  # right point
     i_l = Peaks[:,0].argmin()  # left point
     P_b, P_t, P_r, P_l = Peaks[i_b], Peaks[i_t], Peaks[i_r], Peaks[i_l]
@@ -195,34 +204,37 @@ def case3_m_n(Peaks, w=10, corner=0, show_basis=False):
     # find mode
     return peaks_to_mode(P0, Peaks, w, basis1, m1, basis2, m2)
     
-def Find_mode2(img_loc, separation1=10, Sigma1=1, Width=10, thresh=0.5, Show_ada_thresh=False, Show_fig=True, corner=0, show_peaks=False, show_basis=False):
+def Find_mode2(img_loc, separation1=10, Sigma1=1, Width=10, thresh=0.5, show_ada_thresh=False, show_fig=False, corner=0, show_peaks=False, show_basis=False):
     # Read image
     img = 255 - imageio.imread(img_loc)
     # img = imageio.imread(img_loc)[43:243, 54:320, 0]
     # thresholding and smoothing image to find peaks
     img1 = Thresh(img, thresh)
-    peaks = Find_Peaks(img1, separation=separation1, Sigma=Sigma1, show_ada_thresh=Show_ada_thresh, show_fig=Show_fig)
+    peaks = Find_Peaks(img1, separation=separation1, Sigma=Sigma1, show_ada_thresh=show_ada_thresh, show_fig=show_fig)
     # Case 0: (0,0)
     if len(peaks) == 1:
         mode = (0,0)
         print("Case0: ", mode)
+        if show_ada_thresh or show_peaks or show_basis: plt.show()
         return mode
     # Case 1: (m,0)
-    mode = case1_m_0(peaks, w=Width)
+    mode = case1_m_0(peaks, w=Width, show_basis=show_basis)
     print("Case1 result: ", mode)
     if test_consistency(mode, peaks):
+        if show_ada_thresh or show_peaks or show_basis: plt.show()
         return mode
     else:
         # Case 2: (0,n)
-        mode = case2_0_n(peaks, w=Width)
+        mode = case2_0_n(peaks, w=Width, show_basis=show_basis)
         print("Case2 result: ", mode)
         if test_consistency(mode, peaks):
+            if show_ada_thresh or show_peaks or show_basis: plt.show()
             return mode
         else:
             # Case 3: (m,n)
             for corner in range(4):
-                mode = case3_m_n(peaks, w=Width, corner=corner)
+                mode = case3_m_n(peaks, w=Width, corner=corner, show_basis=show_basis)
                 print("Case3 corner_{} result: ".format(corner), mode)
                 if test_consistency(mode, peaks) or corner==3:
-                    # _ = case3_m_n(peaks, w=Width, corner=corner, show_basis=True)
+                    if show_ada_thresh or show_peaks or show_basis: plt.show()
                     return mode
