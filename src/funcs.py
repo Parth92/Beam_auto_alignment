@@ -204,9 +204,14 @@ def case3_m_n(Peaks, w=10, corner=0, show_basis=False):
     # find mode
     return peaks_to_mode(P0, Peaks, w, basis1, m1, basis2, m2)
     
-def Find_mode2(img_loc, separation1=10, Sigma1=1, Width=10, thresh=0.5, show_ada_thresh=False, show_fig=False, corner=0, show_peaks=False, show_basis=False):
+def Find_mode2(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, corner=0, show_ada_thresh=False, show_fig=False, show_basis=False):
     # Read image
-    img = 255 - imageio.imread(img_loc)
+    # if image location
+    if isinstance(img_loc, str):
+        img = 255 - imageio.imread(img_loc)
+    # if image itself
+    elif isinstance(img_loc, np.ndarray):
+        img = img_loc
     # img = imageio.imread(img_loc)[43:243, 54:320, 0]
     # thresholding and smoothing image to find peaks
     img1 = Thresh(img, thresh)
@@ -215,20 +220,20 @@ def Find_mode2(img_loc, separation1=10, Sigma1=1, Width=10, thresh=0.5, show_ada
     if len(peaks) == 1:
         mode = (0,0)
         print("Case0: ", mode)
-        if show_ada_thresh or show_peaks or show_basis: plt.show()
+        if show_ada_thresh or show_basis: plt.show()
         return mode
     # Case 1: (m,0)
     mode = case1_m_0(peaks, w=Width, show_basis=show_basis)
     print("Case1 result: ", mode)
     if test_consistency(mode, peaks):
-        if show_ada_thresh or show_peaks or show_basis: plt.show()
+        if show_ada_thresh or show_basis: plt.show()
         return mode
     else:
         # Case 2: (0,n)
         mode = case2_0_n(peaks, w=Width, show_basis=show_basis)
         print("Case2 result: ", mode)
         if test_consistency(mode, peaks):
-            if show_ada_thresh or show_peaks or show_basis: plt.show()
+            if show_ada_thresh or show_basis: plt.show()
             return mode
         else:
             # Case 3: (m,n)
@@ -236,7 +241,7 @@ def Find_mode2(img_loc, separation1=10, Sigma1=1, Width=10, thresh=0.5, show_ada
                 mode = case3_m_n(peaks, w=Width, corner=corner, show_basis=show_basis)
                 print("Case3 corner_{} result: ".format(corner), mode)
                 if test_consistency(mode, peaks) or corner==3:
-                    if show_ada_thresh or show_peaks or show_basis: plt.show()
+                    if show_ada_thresh or show_basis: plt.show()
                     return mode
 
 
@@ -247,22 +252,80 @@ def Find_mode2(img_loc, separation1=10, Sigma1=1, Width=10, thresh=0.5, show_ada
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
-# from pypylon import pylon
-# from pypylon import genicam
+from pypylon import pylon
+from pypylon import genicam
 # Importing busworks
-# import busworks
-# import keras
-# from keras import backend as k
-# from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+import busworks
+import keras
+from keras import backend as k
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 import tensorflow as tf
-# import pickle
-# from math import factorial
-# from copy import deepcopy
-# from tqdm import tqdm
-# import datetime
+import pickle
+from math import factorial
+from copy import deepcopy
+from tqdm import tqdm
+import datetime
 import time
-# import os
-# import sys
+import os
+import sys
+
+
+# Initialization
+n_pixl = 128
+RepoDir = '/home/controls/Beam_auto_alignment'
+# RepoDir = '/home/user1/Dropbox/Academic/WORK/Beam_auto_alignment'
+ImagesFolder = RepoDir + '/Data/Actual_cavity_Fittest_points_per_gen_' + \
+str(datetime.datetime.now()).replace(' ', '_').replace(':', '-')[:-10]
+if not os.path.exists(ImagesFolder): os.mkdir(ImagesFolder)
+SaveModelFolder = RepoDir + '/Data/TrainedModels/'
+Model_Name = 'Trained_Model_2019-07-03_17-15'
+
+# Read the pre-trained CNN model
+cnn = keras.models.load_model(SaveModelFolder + Model_Name + '.h5')
+# load the encoder
+loaded_Encoder = pickle.load(open(SaveModelFolder + 'Encoder_of_' + Model_Name + '.npy', 'rb'))
+
+#seed
+np.random.seed(187)
+# waist size in m
+waist = 140e-6
+# range of movement of the waist center at the waist location in the units of waist size
+Range = 3.5
+# max voltage o/p of DAC
+V_DAC_max = 10.
+HV_op_gain = 1.
+# Max angular deviation of steering mirror (on each side)
+phi_SM_max = 26.2e-3 #(rad) for newport mirrors. (Thorlabs : 73e-6 radians)
+SM_drive_gain = 1.
+SM_ip_voltage_range = [0, 10]
+# Max displacement of cavity mirror (PZT) (on one side)
+phi_CM_PZT_max = 2.8e-6 #(microns). starts from zero
+CM_PZT_ip_voltage_range = [0, 200]
+print('Cavity Mirror scanning range is [{}, {}] micron. The used range [{}, {}] micron should not go out.'\
+      .format(0, phi_CM_PZT_max, 0, phi_CM_PZT_max*V_DAC_max*HV_op_gain/CM_PZT_ip_voltage_range[1]))
+print('Steering Mirror scanning range is [-{0}, {0}] rad. The used range [-{1}, {1}] rad should not go out.'\
+      .format(phi_SM_max, phi_SM_max*V_DAC_max*SM_drive_gain/SM_ip_voltage_range[1]))
+# cumulative distance of waist from SM1 in m
+d1 = 0.35+0.0884
+# cumulative distance of waist from SM2 in m
+d2 = 0.0884
+scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, 1.064e-6/Range])   # Scanning of cavity should only happen in one lambda (Check for possible probs)
+PZT_scaling = np.array([V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, \
+                        V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, V_DAC_max/phi_CM_PZT_max])
+pop_per_gen = 500
+num_generations = 25
+num_params = len(scale_params)
+num_parents_mating = pop_per_gen // 10  # 10% of new population are parents
+num_offsprings_per_pair = 2 * (pop_per_gen - num_parents_mating) // num_parents_mating + 1
+# after each iteration, range shrinks by
+shrink_factor = 2. / pop_per_gen ** 0.2  # make sure it is < 1.
+# Defining the population size.
+pop_size = (pop_per_gen,num_params) # The population will have sol_per_pop chromosome \
+# where each chromosome has num_weights genes.
+fitness = np.empty(pop_per_gen)
+
+# camera exposure (check if right command!)
+Exposure = 300
 
 
 def read_mode(Img):
@@ -312,15 +375,37 @@ def sample_d(Rng, shape=pop_size):
     delta *= scale_params
     return delta
 
-def scan_cavity(size):
+def scan_cavity(Beam_status, pop_deltas, Rng, Size, show_fig=False):
     """
-    Takes i/p range in umits of beam waist at the waist location.
-    Outputs sets of deltas (in radians) to be fed to steering mirrors.
-    O/P shape : pop_size
+    Takes i/p range in umits of wavelength.
+    Outputs the best scan position and updated deltas along with image.
     """
-    delta_z = np.random.uniform(low=0, high=1, size=size)
-    delta_z *= scale_params[4]
-    return delta_z
+    R = []
+    # CM pzt does not take -ve values
+    delta_z = np.zeros(Size, len(scale_params))
+    ##### better z_CM sampling #####
+    if Beam_status[-1] - Rng < 0.:
+        Rng_l = 0.
+        Rng_h = Rng
+    elif Beam_status[-1] + Rng < 0.:
+        Rng_l = -Rng
+        Rng_h = 0.
+    else:
+        Rng_l = -Rng / 2.
+        Rng_h = Rng / 2.
+    delta_z[:,-1] = np.random.uniform(low=Rng_l, high=Rng_h, size=Size)
+    for ii in range(len(Size)):
+        # delta_z updated at each step
+        Beam_status, delta_z, R_new, _ = Reward(Beam_status, delta_z, delta_z[ii])
+        R.append(R_new)
+    i_max = np.argmax(R)
+    # pop_deltas updated at this final step
+    Beam_status, pop_deltas, _, Img = Reward(Beam_status, pop_deltas, delta_z[i_max])
+    if show_fig:
+        plt.imshow(Img[::-1], cmap=cm.binary_r)
+        plt.colorbar()
+        plt.show()
+    return Beam_status, pop_deltas, Img
 
 def Set_Voltage(Beam_status):
     ip_V = Beam_status * PZT_scaling
@@ -335,9 +420,8 @@ def Set_Voltage(Beam_status):
     except:
         print('Error!')
 
-
-def Reward(Beam_status, return_img=False, dummy_reward=False):
-    dummy_reward = True
+def Reward_fn(Beam_status, dummy_reward=False):
+    # dummy_reward = True
     if dummy_reward:
         return np.random.randint(255), np.zeros((n_pixl,n_pixl))
     else:
@@ -347,6 +431,14 @@ def Reward(Beam_status, return_img=False, dummy_reward=False):
         R_fn1 = Img1.sum()/n_pixl**2
         # R_fn1 = Img1.max()
         return R_fn1, Img1
+
+def Reward(Beam_status, pop_deltas, step):
+    # take the delta step
+    Beam_status += step
+    # cumulatively subtracting each delta step from all deltas
+    pop_deltas -= step
+    R_new, Img = Reward_fn(Beam_status)
+    return Beam_status, pop_deltas, R_new, Img
 
 def calc_pop_fitness(Current_beam_status, New_pop_deltas, fitness, only_offsprings=False):
     """
@@ -359,19 +451,21 @@ def calc_pop_fitness(Current_beam_status, New_pop_deltas, fitness, only_offsprin
     #     range_vals = range(pop_per_gen)
     range_vals = range(pop_per_gen)
     for ii in range_vals:
-        # take the delta step
-        Current_beam_status += New_pop_deltas[ii]
-        # cumulatively subtracting each delta step from all deltas
-        New_pop_deltas -= New_pop_deltas[ii]
-        R_new, _ = Reward(Current_beam_status, return_img=False)
-        fitness[ii] = R_new
+        # # take the delta step
+        # Current_beam_status += New_pop_deltas[ii]
+        # # cumulatively subtracting each delta step from all deltas
+        # New_pop_deltas -= New_pop_deltas[ii]
+        # fitness[ii], _ = Reward_fn(Current_beam_status)
+        Current_beam_status, New_pop_deltas, fitness[ii], _ = Reward(Current_beam_status, New_pop_deltas, New_pop_deltas[ii])
     return Current_beam_status, New_pop_deltas, fitness
 
-def select_mating_pool(pop, fitness, num_parents_mating, show_the_best=False, save_best=False):
+def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, show_the_best=False, save_best=False):
     """
     Selecting the best candidates in the current generation as parents for 
     producing the offspring of the next generation.
     """
+    img_is_saturated = False
+    Img = []
     parents = np.empty((num_parents_mating, num_params))
     isort = np.argsort(fitness)[::-1]
     parents_fitness = fitness[isort][:num_parents_mating]
@@ -379,11 +473,9 @@ def select_mating_pool(pop, fitness, num_parents_mating, show_the_best=False, sa
     if show_the_best:
         t1 = time.time() - t0
         print('Time: {}, Fittest Parent: {}, Fitness: {}'.format(t1, parents[0], parents_fitness[0]))
-        _, Img = Reward(parents[0], return_img=True)
+        Beam_status, parents, _, Img = Reward(Beam_status, parents, parents[0])
         if Img.max() == 255:
             img_is_saturated = True
-        else:
-            img_is_saturated = False
         plt.imshow(Img[::-1], cmap=cm.binary_r)
         plt.colorbar()
         if save_best:
@@ -396,7 +488,7 @@ def select_mating_pool(pop, fitness, num_parents_mating, show_the_best=False, sa
                      %(gen, (t1), parents_fitness[0], parents[0][0], \
                        parents[0][1], parents[0][2], parents[0][3], parents[0][4]))
         plt.show()
-    return parents, parents_fitness, img_is_saturated, Img
+    return Beam_status, parents, parents_fitness, img_is_saturated, Img
 
 def get_offsprings_Uniform(pairs, parents, offspring_size):
     """create offsprings using uniform crossover"""
