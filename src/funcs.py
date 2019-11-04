@@ -287,6 +287,11 @@ loaded_Encoder = pickle.load(open(SaveModelFolder + 'Encoder_of_' + Model_Name +
 
 #seed
 np.random.seed(187)
+# geometric parameters
+g1 = 1
+g2 = 0.268
+# wavelength
+Lambda = 1.064e-6
 # waist size in m
 waist = 140e-6
 # range of movement of the waist center at the waist location in the units of waist size
@@ -309,7 +314,7 @@ print('Steering Mirror scanning range is [-{0}, {0}] rad. The used range [-{1}, 
 d1 = 0.35+0.0884
 # cumulative distance of waist from SM2 in m
 d2 = 0.0884
-scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, 1.064e-6/Range])   # Scanning of cavity should only happen in one lambda (Check for possible probs)
+scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, Lambda/Range])   # Scanning of cavity should only happen in one lambda (Check for possible probs)
 PZT_scaling = np.array([V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, \
                         V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, V_DAC_max/phi_CM_PZT_max])
 pop_per_gen = 500
@@ -526,3 +531,12 @@ def mutation(Offspring_crossover, Rng):
     # The random value to be added to the gene.
     Offspring_crossover += mutations
     return Offspring_crossover
+
+def jump_2_fundamental(Beam_status, pop_deltas, Mode, Sign=1., show_fig=True):
+    # delta z_CM
+    dz = -Lambda * (Mode[0] + Mode[1]) * np.arccos(Sign*np.sqrt(g1*g2)) / 2 / np.pi
+    # i/p to dac
+    z_step = np.array([0., 0., 0., 0., dz])
+    # taking delta z_CM jump in cavity length
+    Beam_status, pop_deltas, _, img = Reward(Beam_status, pop_deltas, z_step)
+    return Beam_status, pop_deltas, img
