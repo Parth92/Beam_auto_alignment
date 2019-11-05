@@ -317,7 +317,8 @@ d2 = 0.0884
 scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, Lambda/Range])   # Scanning of cavity should only happen in one lambda (Check for possible probs)
 PZT_scaling = np.array([V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, \
                         V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, V_DAC_max/phi_CM_PZT_max])
-pop_per_gen = 500
+pop_per_gen = 200
+Sz = 100    # number of z_CM scan steps
 num_generations = 25
 num_params = len(scale_params)
 num_parents_mating = pop_per_gen // 10  # 10% of new population are parents
@@ -363,8 +364,8 @@ def pad_and_resize_image(image):
     im_new = im_new[0,:,:,0]
     return im_new
 
-def Capture_image(exposure):
-    Dat = camera.GrabOne(exposure)
+def Capture_image(exposure, Camera):
+    Dat = Camera.GrabOne(exposure)
     img = Dat.Array
     return img
 
@@ -380,14 +381,14 @@ def sample_d(Rng, shape=pop_size):
     delta *= scale_params
     return delta
 
-def scan_cavity(Beam_status, pop_deltas, Rng, Size, show_fig=False):
+def scan_cavity(Beam_status, pop_deltas, Rng, Size, Camera, Bus, show_fig=False):
     """
     Takes i/p range in umits of wavelength.
     Outputs the best scan position and updated deltas along with image.
     """
     R = []
     # CM pzt does not take -ve values
-    delta_z = np.zeros(Size, len(scale_params))
+    delta_z = np.zeros((Size, len(scale_params)))
     ##### better z_CM sampling #####
     if Beam_status[-1] - Rng < 0.:
         Rng_l = 0.
@@ -399,53 +400,53 @@ def scan_cavity(Beam_status, pop_deltas, Rng, Size, show_fig=False):
         Rng_l = -Rng / 2.
         Rng_h = Rng / 2.
     delta_z[:,-1] = np.random.uniform(low=Rng_l, high=Rng_h, size=Size)
-    for ii in range(len(Size)):
+    for ii in range(Size):
         # delta_z updated at each step
-        Beam_status, delta_z, R_new, _ = Reward(Beam_status, delta_z, delta_z[ii])
+        Beam_status, delta_z, R_new, _ = Reward(Beam_status, delta_z, delta_z[ii], Camera, Bus)
         R.append(R_new)
     i_max = np.argmax(R)
     # pop_deltas updated at this final step
-    Beam_status, pop_deltas, _, Img = Reward(Beam_status, pop_deltas, delta_z[i_max])
+    Beam_status, pop_deltas, _, Img = Reward(Beam_status, pop_deltas, delta_z[i_max], Camera, Bus)
     if show_fig:
         plt.imshow(Img[::-1], cmap=cm.binary_r)
         plt.colorbar()
         plt.show()
     return Beam_status, pop_deltas, Img
 
-def Set_Voltage(Beam_status):
+def Set_Voltage(Beam_status, Bus):
     ip_V = Beam_status * PZT_scaling
     # making sure that the DAC voltages remain in the required range
     # if (np.abs(ip_V) > V_DAC_max).sum() > 0:
         # print('DAC I/P voltage exceeded limit! Forcefully brought down.')
-    ip_V[np.where(ip_V > V_DAC_max)] = V_DAC_max
-    ip_V[np.where(ip_V < -V_DAC_max)] = -V_DAC_max
+    ip_V[ip_V > V_DAC_max] = V_DAC_max
+    ip_V[ip_V < -V_DAC_max] = -V_DAC_max
     try:
-        # print(Beam_status)
-        bus.set_voltages(ip_V, 1)
+        # print(ip_V)
+        Bus.set_voltages(ip_V, 1)
     except:
         print('Error!')
 
-def Reward_fn(Beam_status, dummy_reward=False):
+def Reward_fn(Beam_status, Camera, Bus, dummy_reward=False):
     # dummy_reward = True
     if dummy_reward:
         return np.random.randint(255), np.zeros((n_pixl,n_pixl))
     else:
-        Set_Voltage(Beam_status)
+        Set_Voltage(Beam_status, Bus)
         # reward fn as total power in the image
-        Img1 = Capture_image(Exposure)
+        Img1 = Capture_image(Exposure, Camera)
         R_fn1 = Img1.sum()/n_pixl**2
         # R_fn1 = Img1.max()
         return R_fn1, Img1
 
-def Reward(Beam_status, pop_deltas, step):
+def Reward(Beam_status, pop_deltas, step, Camera, Bus):
     # take the delta step
     Beam_status += step
     # cumulatively subtracting each delta step from all deltas
     pop_deltas -= step
-    R_new, Img = Reward_fn(Beam_status)
+    R_new, Img = Reward_fn(Beam_status, Camera, Bus)
     return Beam_status, pop_deltas, R_new, Img
 
-def calc_pop_fitness(Current_beam_status, New_pop_deltas, fitness, only_offsprings=False):
+def calc_pop_fitness(Current_beam_status, New_pop_deltas, fitness, Camera, Bus, only_offsprings=False):
     """
     Calculating the fitness value of each solution in the current population.
     Also returns the current beam location (after adding the steps taken so far)
@@ -460,11 +461,11 @@ def calc_pop_fitness(Current_beam_status, New_pop_deltas, fitness, only_offsprin
         # Current_beam_status += New_pop_deltas[ii]
         # # cumulatively subtracting each delta step from all deltas
         # New_pop_deltas -= New_pop_deltas[ii]
-        # fitness[ii], _ = Reward_fn(Current_beam_status)
-        Current_beam_status, New_pop_deltas, fitness[ii], _ = Reward(Current_beam_status, New_pop_deltas, New_pop_deltas[ii])
+        # fitness[ii], _ = Reward_fn(Current_beam_status, Camera, Bus)
+        Current_beam_status, New_pop_deltas, fitness[ii], _ = Reward(Current_beam_status, New_pop_deltas, New_pop_deltas[ii], Camera, Bus)
     return Current_beam_status, New_pop_deltas, fitness
 
-def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, show_the_best=False, save_best=False):
+def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, Camera, Bus, show_the_best=False, save_best=False):
     """
     Selecting the best candidates in the current generation as parents for 
     producing the offspring of the next generation.
@@ -478,7 +479,7 @@ def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, s
     if show_the_best:
         t1 = time.time() - t0
         print('Time: {}, Fittest Parent: {}, Fitness: {}'.format(t1, parents[0], parents_fitness[0]))
-        Beam_status, parents, _, Img = Reward(Beam_status, parents, parents[0])
+        Beam_status, parents, _, Img = Reward(Beam_status, parents, parents[0], Camera, Bus)
         if Img.max() == 255:
             img_is_saturated = True
         plt.imshow(Img[::-1], cmap=cm.binary_r)
@@ -532,11 +533,11 @@ def mutation(Offspring_crossover, Rng):
     Offspring_crossover += mutations
     return Offspring_crossover
 
-def jump_2_fundamental(Beam_status, pop_deltas, Mode, Sign=1., show_fig=True):
+def jump_2_fundamental(Beam_status, pop_deltas, Mode, Camera, Bus, Sign=1., show_fig=True):
     # delta z_CM
     dz = -Lambda * (Mode[0] + Mode[1]) * np.arccos(Sign*np.sqrt(g1*g2)) / 2 / np.pi
     # i/p to dac
     z_step = np.array([0., 0., 0., 0., dz])
     # taking delta z_CM jump in cavity length
-    Beam_status, pop_deltas, _, img = Reward(Beam_status, pop_deltas, z_step)
+    Beam_status, pop_deltas, _, img = Reward(Beam_status, pop_deltas, z_step, Camera, Bus)
     return Beam_status, pop_deltas, img
