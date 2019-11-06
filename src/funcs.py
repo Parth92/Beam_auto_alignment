@@ -256,10 +256,10 @@ from pypylon import pylon
 from pypylon import genicam
 # Importing busworks
 import busworks
-import keras
-from keras import backend as k
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-import tensorflow as tf
+# import keras
+# from keras import backend as k
+# from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+# import tensorflow as tf
 import pickle
 from math import factorial
 from copy import deepcopy
@@ -280,10 +280,10 @@ if not os.path.exists(ImagesFolder): os.mkdir(ImagesFolder)
 SaveModelFolder = RepoDir + '/Data/TrainedModels/'
 Model_Name = 'Trained_Model_2019-07-03_17-15'
 
-# Read the pre-trained CNN model
-cnn = keras.models.load_model(SaveModelFolder + Model_Name + '.h5')
-# load the encoder
-loaded_Encoder = pickle.load(open(SaveModelFolder + 'Encoder_of_' + Model_Name + '.npy', 'rb'))
+# # Read the pre-trained CNN model
+# cnn = keras.models.load_model(SaveModelFolder + Model_Name + '.h5')
+# # load the encoder
+# loaded_Encoder = pickle.load(open(SaveModelFolder + 'Encoder_of_' + Model_Name + '.npy', 'rb'))
 
 #seed
 np.random.seed(187)
@@ -347,22 +347,22 @@ def read_mode(Img):
                                                 inverse_transform(mode).astype('int'))
     return mode
 
-def pad_and_resize_image(image):
-    # padding with const value of first pixel in image
-    im_new = np.ones((max(image.shape),max(image.shape)))*image[0,0]
-    pad = int((max(image.shape)-min(image.shape))/2)
-    im_new[pad:-pad,:] = image
-    # resize 
-    im = tf.image.resize_nearest_neighbor(
-        im_new.reshape(1, im_new.shape[0], im_new.shape[1], 1),
-        (n_pixl,n_pixl),
-        align_corners=False,
-        name=None
-    )
-    with sess.as_default():
-        im_new = im.eval()
-    im_new = im_new[0,:,:,0]
-    return im_new
+# def pad_and_resize_image(image):
+#     # padding with const value of first pixel in image
+#     im_new = np.ones((max(image.shape),max(image.shape)))*image[0,0]
+#     pad = int((max(image.shape)-min(image.shape))/2)
+#     im_new[pad:-pad,:] = image
+#     # resize 
+#     im = tf.image.resize_nearest_neighbor(
+#         im_new.reshape(1, im_new.shape[0], im_new.shape[1], 1),
+#         (n_pixl,n_pixl),
+#         align_corners=False,
+#         name=None
+#     )
+#     with sess.as_default():
+#         im_new = im.eval()
+#     im_new = im_new[0,:,:,0]
+#     return im_new
 
 def Capture_image(exposure, Camera):
     Dat = Camera.GrabOne(exposure)
