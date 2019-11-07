@@ -11,18 +11,24 @@ def one_peak_per_filter(peaks, separation):
     Updated_peaks = []
     i = 0
     while len(peaks>0):
-        i_pick = np.where((peaks[:,0] >= peaks[i,0]-separation) & (peaks[:,0] <= peaks[i,0]+separation) & \
-                          (peaks[:,1] >= peaks[i,1]-separation) & (peaks[:,1] <= peaks[i,1]+separation))
-        peak1 = peaks[i_pick]
-        Len = len(peak1)
-        if Len>1:
-            peak_new = [int(np.sum(peak1[:,0])/Len), int(np.sum(peak1[:,1])/Len)]
+        print(peaks)
+        if len(peaks)>1:
+            i_pick = np.where((peaks[:,0] >= peaks[i,0]-separation) & (peaks[:,0] <= peaks[i,0]+separation) & \
+                              (peaks[:,1] >= peaks[i,1]-separation) & (peaks[:,1] <= peaks[i,1]+separation))
+            peak1 = peaks[i_pick]
+            Len = len(peak1)
+            if Len>1:
+                peak_new = [int(np.sum(peak1[:,0])/Len), int(np.sum(peak1[:,1])/Len)]
+            else:
+                peak_new = peak1.ravel().tolist()
+            Updated_peaks.append(peak_new)
+            peaks = np.delete(peaks, i_pick, 0)
         else:
-            peak_new = peak1.ravel().tolist()
-        Updated_peaks.append(peak_new)
-        peaks = np.delete(peaks, i_pick, 0)
+            peak_new = peaks.ravel().tolist()
+            Updated_peaks.append(peak_new)
+            peaks = np.delete(peaks, 0, 0)
         # print(i, 'peak_new: ', peak_new, '\nPeaks: ', peaks)
-        i += 1
+        # i += 1
     return np.array(Updated_peaks)
 
 def Find_Peaks(IMG, separation=10, Sigma=1, show_ada_thresh=False, show_fig=False):
@@ -34,6 +40,7 @@ def Find_Peaks(IMG, separation=10, Sigma=1, show_ada_thresh=False, show_fig=Fals
     coordinates[:,0] = coordinates[:,1]
     coordinates[:,1] = dummy
     coordinates = one_peak_per_filter(coordinates, separation)
+    print(coordinates)
     if show_fig:
         plt.figure()
         plt.imshow(Smooth_img, cmap=plt.cm.gray)
@@ -230,7 +237,6 @@ def Find_mode2(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, corner=0,
     # if image itself
     elif isinstance(img_loc, np.ndarray):
         img = img_loc
-    # img = imageio.imread(img_loc)[43:243, 54:320, 0]
     # thresholding and smoothing image to find peaks
     img1 = Thresh(img, thresh)
     peaks = Find_Peaks(img1, separation=separation1, Sigma=Sigma1, show_ada_thresh=show_ada_thresh, show_fig=show_fig)
@@ -295,8 +301,9 @@ RepoDir = '/home/controls/Beam_auto_alignment'
 ImagesFolder = RepoDir + '/Data/Actual_cavity_Fittest_points_per_gen_' + \
 str(datetime.datetime.now()).replace(' ', '_').replace(':', '-')[:-10]
 if not os.path.exists(ImagesFolder): os.mkdir(ImagesFolder)
-SaveModelFolder = RepoDir + '/Data/TrainedModels/'
-Model_Name = 'Trained_Model_2019-07-03_17-15'
+print('Saving imgages in ' + ImagesFolder + '\n')
+# SaveModelFolder = RepoDir + '/Data/TrainedModels/'
+# Model_Name = 'Trained_Model_2019-07-03_17-15'
 
 # # Read the pre-trained CNN model
 # cnn = keras.models.load_model(SaveModelFolder + Model_Name + '.h5')
