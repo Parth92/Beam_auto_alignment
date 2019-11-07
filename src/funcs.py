@@ -7,6 +7,23 @@ from skimage.feature import peak_local_max
 from scipy import ndimage as ndi
 from skimage.filters import gaussian
 
+def one_peak_per_filter(peaks, separation):
+    Updated_peaks = []
+    i = 0
+    while len(peaks>0):
+        i_pick = np.where((peaks[:,0] >= peaks[i,0]-separation) & (peaks[:,0] <= peaks[i,0]+separation) & \
+                          (peaks[:,1] >= peaks[i,1]-separation) & (peaks[:,1] <= peaks[i,1]+separation))
+        peak1 = peaks[i_pick]
+        Len = len(peak1)
+        if Len>1:
+            peak_new = [int(np.sum(peak1[:,0])/Len), int(np.sum(peak1[:,1])/Len)]
+        else:
+            peak_new = peak1.ravel().tolist()
+        Updated_peaks.append(peak_new)
+        peaks = np.delete(peaks, i_pick, 0)
+        # print(i, 'peak_new: ', peak_new, '\nPeaks: ', peaks)
+        i += 1
+    return np.array(Updated_peaks)
 
 def Find_Peaks(IMG, separation=10, Sigma=1, show_ada_thresh=False, show_fig=False):
     if show_ada_thresh: image_max = ndi.maximum_filter(IMG, size=separation, mode='constant')
@@ -16,6 +33,7 @@ def Find_Peaks(IMG, separation=10, Sigma=1, show_ada_thresh=False, show_fig=Fals
     dummy = coordinates[:,0].copy()
     coordinates[:,0] = coordinates[:,1]
     coordinates[:,1] = dummy
+    coordinates = one_peak_per_filter(coordinates, separation)
     if show_fig:
         plt.figure()
         plt.imshow(Smooth_img, cmap=plt.cm.gray)
@@ -295,7 +313,7 @@ Lambda = 1.064e-6
 # waist size in m
 waist = 140e-6
 # range of movement of the waist center at the waist location in the units of waist size
-Range = 3.5
+Range_orig = 2.
 # max voltage o/p of DAC
 V_DAC_max = 10.
 HV_op_gain = 1.
@@ -314,17 +332,17 @@ print('Steering Mirror scanning range is [-{0}, {0}] rad. The used range [-{1}, 
 d1 = 0.35+0.0884
 # cumulative distance of waist from SM2 in m
 d2 = 0.0884
-scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, Lambda/Range])   # Scanning of cavity should only happen in one lambda (Check for possible probs)
+scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, Lambda/Range_orig])   # Scanning of cavity should only happen in one lambda (Check for possible probs)
 PZT_scaling = np.array([V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, \
                         V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, V_DAC_max/phi_CM_PZT_max])
-pop_per_gen = 200
+pop_per_gen = 300
 Sz = 100    # number of z_CM scan steps
 num_generations = 25
 num_params = len(scale_params)
 num_parents_mating = pop_per_gen // 10  # 10% of new population are parents
 num_offsprings_per_pair = 2 * (pop_per_gen - num_parents_mating) // num_parents_mating + 1
 # after each iteration, range shrinks by
-shrink_factor = 2. / pop_per_gen ** 0.2  # make sure it is < 1.
+shrink_factor = 2. / pop_per_gen ** (1./len(scale_params))  # make sure it is < 1.
 # Defining the population size.
 pop_size = (pop_per_gen,num_params) # The population will have sol_per_pop chromosome \
 # where each chromosome has num_weights genes.
