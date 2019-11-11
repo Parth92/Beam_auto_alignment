@@ -11,7 +11,7 @@ def one_peak_per_filter(peaks, separation):
     Updated_peaks = []
     i = 0
     while len(peaks>0):
-        print(peaks)
+        # print(peaks)
         if len(peaks)>1:
             i_pick = np.where((peaks[:,0] >= peaks[i,0]-separation) & (peaks[:,0] <= peaks[i,0]+separation) & \
                               (peaks[:,1] >= peaks[i,1]-separation) & (peaks[:,1] <= peaks[i,1]+separation))
@@ -31,6 +31,62 @@ def one_peak_per_filter(peaks, separation):
         # i += 1
     return np.array(Updated_peaks)
 
+def two_pt_line(point1, point2, xval):
+    if point1[0] == point2[0]:
+        return 
+    else:
+        Ys = (point2[1]-point1[1])
+        Ys *= (xval-point1[0])
+        Ys /= (point2[0]-point1[0])
+        Ys += point1[1]
+        return Ys
+
+def linking_pts(point1, point2):
+    if point1[0] != point2[0]:
+        if point1[0] > point2[0]:
+            dummy = point2
+            point2 = point1
+            point1 = dummy
+        xs = np.arange(float(point1[0]), float(point2[0])+1., 1.)
+        ys = two_pt_line(point1.astype(float), point2.astype(float), xs)
+    else:
+        # y intersections of vertical line
+        if point1[1] > point2[1]:
+            dummy = point2
+            point2 = point1
+            point1 = dummy
+        ys = np.arange(float(point1[1]), float(point2[1])+1., 1.)
+        xs = two_pt_line(point1.astype(float)[::-1], point2.astype(float)[::-1], ys)
+    # linking pts
+    Lnk_Pts = np.array([xs, np.ceil(ys)]).T
+    Lnk_Pts = np.append(Lnk_Pts, np.array([xs, np.floor(ys)]).T, axis=0)
+    Lnk_Pts = Lnk_Pts.astype(int)
+    return Lnk_Pts
+
+def one_peak_per_island(peaks, img):
+    Updated_peaks = []
+    i = 0
+    while len(peaks>0):
+        i_pick = [0]
+        if len(peaks)>1:
+            for ii in range(1,len(peaks)):
+                Lnk_pts = linking_pts(peaks[0], peaks[ii])
+                if np.prod(img[Lnk_pts[:,1], Lnk_pts[:,0]]):
+                    i_pick.append(ii)
+            peak1 = peaks[np.array(i_pick)]
+            Len = len(i_pick)
+            if Len>1:
+                peak_new = [int(np.sum(peak1[:,0])/Len), int(np.sum(peak1[:,1])/Len)]
+            else:
+                peak_new = peak1.ravel().tolist()
+            Updated_peaks.append(peak_new)
+            peaks = np.delete(peaks, i_pick, 0)
+        else:
+            peak_new = peaks.ravel().tolist()
+            Updated_peaks.append(peak_new)
+            peaks = np.delete(peaks, 0, 0)
+    return np.array(Updated_peaks)
+
 def Find_Peaks(IMG, separation=10, Sigma=1, show_ada_thresh=False, show_fig=False):
     if show_ada_thresh: image_max = ndi.maximum_filter(IMG, size=separation, mode='constant')
     Smooth_img = gaussian(IMG,  sigma=Sigma)
@@ -40,7 +96,7 @@ def Find_Peaks(IMG, separation=10, Sigma=1, show_ada_thresh=False, show_fig=Fals
     coordinates[:,0] = coordinates[:,1]
     coordinates[:,1] = dummy
     coordinates = one_peak_per_filter(coordinates, separation)
-    print(coordinates)
+    coordinates = one_peak_per_island(coordinates, IMG)
     if show_fig:
         plt.figure()
         plt.imshow(Smooth_img, cmap=plt.cm.gray)
@@ -98,7 +154,7 @@ def peaks_to_mode(Peak_corner, Peaks, Width, Basis1, slope1, Basis2=[], slope2=N
     else:
         return (n-1,m-1)
 
-def Find_mode(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, show_ada_thresh=False, show_fig=True, corner=0, show_peaks=False):
+def Find_mode(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, show_ada_thresh=False, show_fig=True, corner=0, show_peaks=False, verbose=False):
     # Read image
     img = 255 - imageio.imread(img_loc)
     # thresholding and smoothing image to find peaks
@@ -145,7 +201,8 @@ def Find_mode(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, show_ada_t
         mode = peaks_to_mode(peak_corner, peaks, Width, basis1, m1, basis2, m2)
     print(mode)
     if (mode[0]+1)*(mode[1]+1) < len(peaks):
-        print('Warning: Something went wrong! \nNumber of peaks ({}) \
+        if verbose:
+            print('Warning: Something went wrong! \nNumber of peaks ({}) \
         inferred from mode does not match with actual number of peaks({})'.format((mode[0]+1)*(mode[1]+1), len(peaks)))
         corner += 1
         if corner < 4:
@@ -157,11 +214,12 @@ def Find_mode(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, show_ada_t
     plt.show()
     return mode
 
-def test_consistency(mode, Peaks):
+def test_consistency(mode, Peaks, verbose=False):
     if (mode[0]+1)*(mode[1]+1) == len(Peaks) or (mode[0]+1)*(mode[1]+1) == len(Peaks)+1:
         return True
     else:
-        print('Warning: Something went wrong! \nNumber of inferred peaks ({}) from mode does not match with actual number of peaks({})'.format((mode[0]+1)*(mode[1]+1), len(Peaks)))
+        if verbose:
+            print('Warning: Something went wrong! \nNumber of inferred peaks ({}) from mode does not match with actual number of peaks({})'.format((mode[0]+1)*(mode[1]+1), len(Peaks)))
         return False
 
 def case1_m_0(Peaks, w=10, show_basis=False):
@@ -229,7 +287,7 @@ def case3_m_n(Peaks, w=10, corner=0, show_basis=False):
     # find mode
     return peaks_to_mode(P0, Peaks, w, basis1, m1, basis2, m2)
     
-def Find_mode2(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, corner=0, show_ada_thresh=False, show_fig=False, show_basis=False):
+def Find_mode2(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, corner=0, show_ada_thresh=False, show_fig=False, show_basis=False, verbose=False):
     # Read image
     # if image location
     if isinstance(img_loc, str):
@@ -243,19 +301,22 @@ def Find_mode2(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, corner=0,
     # Case 0: (0,0)
     if len(peaks) == 1:
         mode = (0,0)
-        print("Case0: ", mode)
+        if verbose:
+            print("Case0: ", mode)
         if show_ada_thresh or show_basis: plt.show()
         return mode
     # Case 1: (m,0)
     mode = case1_m_0(peaks, w=Width, show_basis=show_basis)
-    print("Case1 result: ", mode)
+    if verbose:
+        print("Case1 result: ", mode)
     if test_consistency(mode, peaks):
         if show_ada_thresh or show_basis: plt.show()
         return mode
     else:
         # Case 2: (0,n)
         mode = case2_0_n(peaks, w=Width, show_basis=show_basis)
-        print("Case2 result: ", mode)
+        if verbose:
+            print("Case2 result: ", mode)
         if test_consistency(mode, peaks):
             if show_ada_thresh or show_basis: plt.show()
             return mode
@@ -263,7 +324,8 @@ def Find_mode2(img_loc, separation1=5, Sigma1=1, Width=10, thresh=0.5, corner=0,
             # Case 3: (m,n)
             for corner in range(4):
                 mode = case3_m_n(peaks, w=Width, corner=corner, show_basis=show_basis)
-                print("Case3 corner_{} result: ".format(corner), mode)
+                if verbose:
+                    print("Case3 corner_{} result: ".format(corner), mode)
                 if test_consistency(mode, peaks) or corner==3:
                     if show_ada_thresh or show_basis: plt.show()
                     return mode
@@ -292,7 +354,6 @@ import datetime
 import time
 import os
 import sys
-
 
 # Initialization
 n_pixl = 128
@@ -343,7 +404,7 @@ scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, Lambda/Range_or
 PZT_scaling = np.array([V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, \
                         V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, V_DAC_max/phi_CM_PZT_max])
 pop_per_gen = 300
-Sz = 100    # number of z_CM scan steps
+Sz = 300    # number of z_CM scan steps
 num_generations = 25
 num_params = len(scale_params)
 num_parents_mating = pop_per_gen // 10  # 10% of new population are parents
@@ -459,7 +520,9 @@ def Reward_fn(Beam_status, Camera, Bus, dummy_reward=False):
         Set_Voltage(Beam_status, Bus)
         # reward fn as total power in the image
         Img1 = Capture_image(Exposure, Camera)
-        R_fn1 = Img1.sum()/n_pixl**2
+        # finding the mode
+        Mode = Find_mode2(Img1, separation1=10, Sigma1=1, Width=10, thresh=0.5, corner=0)
+        R_fn1 = Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)
         # R_fn1 = Img1.max()
         return R_fn1, Img1
 
