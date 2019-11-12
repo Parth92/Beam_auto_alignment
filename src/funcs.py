@@ -96,7 +96,7 @@ def Find_Peaks(IMG, separation=10, Sigma=1, show_ada_thresh=False, show_fig=Fals
     coordinates[:,0] = coordinates[:,1]
     coordinates[:,1] = dummy
     coordinates = one_peak_per_filter(coordinates, separation)
-    coordinates = one_peak_per_island(coordinates, IMG)
+    coordinates = one_peak_per_island(coordinates, Smooth_img)
     if show_fig:
         plt.figure()
         plt.imshow(Smooth_img, cmap=plt.cm.gray)
