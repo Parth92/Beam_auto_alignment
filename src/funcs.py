@@ -360,7 +360,15 @@ pop_size = (pop_per_gen,num_params) # The population will have sol_per_pop chrom
 fitness = np.empty(pop_per_gen)
 
 # camera exposure (check if right command!)
-Exposure = 300 # microseconds
+Exposure = 500 # microseconds
+
+# Digital locking
+P_thresh = 0.9 # thresh wrt max power that has to be maintained
+P_max = 300.
+P_old = 0.
+z_step = 1e-8
+locking_loop_on = False
+direction = 1
 
 
 def read_mode(Img):
