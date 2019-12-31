@@ -11,17 +11,20 @@ def one_peak_per_filter(peaks, separation):
     Updated_peaks = []
     i = 0
     while len(peaks>0):
-        # print(peaks)
+        # collecting all the peaks in a filter: peak1
         if len(peaks)>1:
             i_pick = np.where((peaks[:,0] >= peaks[i,0]-separation) & (peaks[:,0] <= peaks[i,0]+separation) & \
                               (peaks[:,1] >= peaks[i,1]-separation) & (peaks[:,1] <= peaks[i,1]+separation))
             peak1 = peaks[i_pick]
             Len = len(peak1)
+            # getting only one peak which is avg of all peaks in one filter
             if Len>1:
                 peak_new = [int(np.sum(peak1[:,0])/Len), int(np.sum(peak1[:,1])/Len)]
             else:
                 peak_new = peak1.ravel().tolist()
+            # add this new peak in a new list of updated peaks
             Updated_peaks.append(peak_new)
+            # delete the peaks from this filter from the original list
             peaks = np.delete(peaks, i_pick, 0)
         else:
             peak_new = peaks.ravel().tolist()
@@ -42,7 +45,7 @@ def two_pt_line(point1, point2, xval):
         return Ys
 
 def linking_pts(point1, point2):
-    if point1[0] != point2[0]:
+    if np.abs(point1[0]-point2[0]) > np.abs(point1[1]-point2[1]):
         if point1[0] > point2[0]:
             dummy = point2
             point2 = point1
@@ -87,11 +90,12 @@ def one_peak_per_island(peaks, img):
             peaks = np.delete(peaks, 0, 0)
     return np.array(Updated_peaks)
 
-def Find_Peaks(IMG, separation=10, Sigma=1, show_ada_thresh=False, show_fig=False):
-    if show_ada_thresh: image_max = ndi.maximum_filter(IMG, size=separation, mode='constant')
+def Find_Peaks(IMG, separation=10, Sigma=1, thresh=0.5, show_ada_thresh=False, show_fig=False):
     Smooth_img = gaussian(IMG,  sigma=Sigma)
-    Smooth_img = Thresh(Smooth_img, 0.7)
+    Smooth_img = Thresh(Smooth_img, thresh)
+    if show_ada_thresh: image_max = ndi.maximum_filter(Smooth_img, size=separation, mode='constant')
     coordinates = peak_local_max(Smooth_img, min_distance=separation, exclude_border=False)
+    np.random.shuffle(coordinates)
     coordinates = np.array(coordinates[:36])
     dummy = coordinates[:,0].copy()
     coordinates[:,0] = coordinates[:,1]
@@ -100,12 +104,14 @@ def Find_Peaks(IMG, separation=10, Sigma=1, show_ada_thresh=False, show_fig=Fals
     coordinates = one_peak_per_island(coordinates, Smooth_img)
     if show_fig:
         plt.figure()
+        plt.title('thresholded smooth img')
         plt.imshow(Smooth_img, cmap=plt.cm.gray)
         plt.colorbar()
         plt.plot(coordinates[:, 0],
                  coordinates[:, 1], 'r*')
     if show_ada_thresh:
         plt.figure()
+        plt.title('filters')
         plt.imshow(image_max, cmap=plt.cm.gray)
         plt.colorbar()
     return coordinates
@@ -233,14 +239,11 @@ def Find_mode2(img_loc, separation1=10, Sigma1=1, Width=10, thresh=0.5, corner=0
     # if image location
     if isinstance(img_loc, str):
         print('reading image from ', img_loc)
-        img = 255 - imageio.imread(img_loc)
+        img1 = 255 - imageio.imread(img_loc)
     # if image itself
     elif isinstance(img_loc, np.ndarray):
-        img = img_loc
-    # thresholding and smoothing image to find peaks
-    img1 = img
-    # img1 = Thresh(img, thresh)
-    peaks = Find_Peaks(img1, separation=separation1, Sigma=Sigma1, show_ada_thresh=show_ada_thresh, show_fig=show_fig)
+        img1 = img_loc
+    peaks = Find_Peaks(img1, separation=separation1, Sigma=Sigma1, thresh=thresh, show_ada_thresh=show_ada_thresh, show_fig=show_fig)
     # Case 0: (0,0)
     if len(peaks) == 1:
         mode = (0,0)
@@ -324,7 +327,7 @@ Lambda = 1.064e-6
 # waist size in m
 waist = 140e-6
 # range of movement of the waist center at the waist location in the units of waist size
-Range_orig = 1.
+Range_orig = 2.
 # max voltage o/p of DAC
 V_DAC_max = 10.
 HV_op_gain = 1.
@@ -343,24 +346,31 @@ print('Steering Mirror scanning range is [-{0}, {0}] rad. The used range [-{1}, 
 d1 = 0.35+0.0884
 # cumulative distance of waist from SM2 in m
 d2 = 0.0884
-scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, Lambda/Range_orig])   # Scanning of cavity should only happen in one lambda (Check for possible probs)
+scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, Lambda/2./Range_orig])   # dist bet two peaks is lambda/2; taking a slightly higher range lambda/1.5
 PZT_scaling = np.array([V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, \
                         V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, V_DAC_max/phi_CM_PZT_max])
-pop_per_gen = 300
+pop_per_gen = 200
 Sz = 300    # number of z_CM scan steps
 num_generations = 25
 num_params = len(scale_params)
 num_parents_mating = pop_per_gen // 10  # 10% of new population are parents
 num_offsprings_per_pair = 2 * (pop_per_gen - num_parents_mating) // num_parents_mating + 1
 # after each iteration, range shrinks by
-shrink_factor = 2. / pop_per_gen ** (1./len(scale_params))  # make sure it is < 1.
+shrink_factor = 1.5 / pop_per_gen ** (1./len(scale_params))  # make sure it is < 1.
+print('shrink factor: ', shrink_factor)
 # Defining the population size.
 pop_size = (pop_per_gen,num_params) # The population will have sol_per_pop chromosome \
 # where each chromosome has num_weights genes.
 fitness = np.empty(pop_per_gen)
 
 # camera exposure (check if right command!)
-Exposure = 500 # microseconds
+Exposure = 300 # microseconds
+
+# Mode params
+SEPARATION = 5
+SIGMA = 1
+WIDTH = 10
+THRESH = 0.5
 
 # Digital locking
 P_thresh = 0.9 # thresh wrt max power that has to be maintained
@@ -406,15 +416,18 @@ def Capture_image(exposure, Camera):
     img = Dat.Array
     return img
 
-def sample_d(Rng, shape=pop_size):
+def sample_d(Rng, shape=pop_size, first_sample=False):
     """
     Takes i/p range in umits of beam waist at the waist location.
     Outputs sets of deltas (in radians) to be fed to steering mirrors.
     O/P shape : pop_size
     """
     delta = np.random.uniform(low=-Rng, high=Rng, size=shape)
-    # CM pzt does not take -ve values
-    delta[:,shape[1]-1] = np.abs(delta[:,shape[1]-1])
+    delta[:,shape[1]-1] *= Range_orig/Rng # always scan full FSR range
+    if first_sample:
+        # CM pzt does not take -ve values
+        i_n = np.where(delta[:,shape[1]-1] < 0.)
+        delta[:,shape[1]-1][i_n] += Range_orig
     delta *= scale_params
     return delta
 
@@ -453,15 +466,14 @@ def scan_cavity(Beam_status, pop_deltas, Rng, Size, Camera, Bus, show_fig=False)
 def Set_Voltage(Beam_status, Bus):
     ip_V = Beam_status * PZT_scaling
     # making sure that the DAC voltages remain in the required range
-    # if (np.abs(ip_V) > V_DAC_max).sum() > 0:
-        # print('DAC I/P voltage exceeded limit! Forcefully brought down.')
+    if (np.abs(ip_V) > V_DAC_max).sum() > 0:
+        print('DAC I/P voltage exceeded limit! Forcefully brought down.\nExceeding points: ', np.abs(ip_V) > V_DAC_max, '\nVoltage status: ', ip_V)
     ip_V[ip_V > V_DAC_max] = V_DAC_max
     ip_V[ip_V < -V_DAC_max] = -V_DAC_max
     try:
-        # print(ip_V)
         Bus.set_voltages(ip_V, 1)
     except:
-        print('Error!')
+        print('Error! Failed to set voltages: ', ip_V)
 
 def Reward_fn(Beam_status, Camera, Bus, dummy_reward=False):
     # dummy_reward = True
@@ -472,9 +484,9 @@ def Reward_fn(Beam_status, Camera, Bus, dummy_reward=False):
         # reward fn as total power in the image
         Img1 = Capture_image(Exposure, Camera)
         # finding the mode
-        Mode = Find_mode2(Img1, separation1=10, Sigma1=1, Width=10, thresh=0.5, corner=0)
-        R_fn1 = Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)
-        # R_fn1 = Img1.max()
+        Mode = Find_mode2(Img1, separation1=SEPARATION, Sigma1=SIGMA, Width=WIDTH, thresh=THRESH, corner=0)
+        # R_fn1 = Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)
+        R_fn1 = 100.*Img1.max()/n_pixl**2./(Mode[0]+Mode[1]+1.)
         return R_fn1, Img1
 
 def Reward(Beam_status, pop_deltas, step, Camera, Bus):
@@ -517,11 +529,11 @@ def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, C
     parents = pop[isort][:num_parents_mating,:]
     if show_the_best:
         t1 = time.time() - t0
-        print('Time: {}, Fittest Parent: {}, Fitness: {}'.format(t1, parents[0], parents_fitness[0]))
+        print('Time: {}, Fittest Parent: {}, Fitness: {}'.format(t1, Beam_status+parents[0], parents_fitness[0]))
         Beam_status, parents, _, Img = Reward(Beam_status, parents, parents[0], Camera, Bus)
         if Img.max() == 255:
             img_is_saturated = True
-        plt.imshow(Img[::-1], cmap=cm.binary_r)
+        plt.imshow(Img, cmap=cm.binary_r)
         plt.colorbar()
         if save_best:
             if gen < 10:
@@ -565,11 +577,17 @@ def crossover(parents, offspring_size):
     offsprings = get_offsprings_Uniform(pairs, parents, offspring_size)
     return offsprings
 
-def mutation(Offspring_crossover, Rng):
+def mutation(Beam_status, Offspring_crossover, Rng):
     # Mutation changes a single gene in each offspring randomly.
     mutations = sample_d(Rng, shape=Offspring_crossover.shape)
     # The random value to be added to the gene.
     Offspring_crossover += mutations
+    # CM pzt does not take -ve values
+    i_N = np.where(Beam_status[-1]+Offspring_crossover[:,Offspring_crossover.shape[1]-1] < 0.)
+    Offspring_crossover[:,Offspring_crossover.shape[1]-1][i_N] += Lambda/2.
+    # CM pzt does not take values beyond V_DAC_max
+    i_P = np.where(Beam_status[-1]+Offspring_crossover[:,Offspring_crossover.shape[1]-1] > phi_CM_PZT_max)
+    Offspring_crossover[:,Offspring_crossover.shape[1]-1][i_P] -= Lambda/2.
     return Offspring_crossover
 
 def jump_2_fundamental(Beam_status, pop_deltas, Mode, Camera, Bus, reverse=False, show_fig=True):
@@ -583,3 +601,6 @@ def jump_2_fundamental(Beam_status, pop_deltas, Mode, Camera, Bus, reverse=False
     # taking delta z_CM jump in cavity length
     Beam_status, pop_deltas, _, img = Reward(Beam_status, pop_deltas, z_step, Camera, Bus)
     return Beam_status, pop_deltas, img
+
+# Fundamental mode position is [5.37932319e-04, 3.33051668e-04, -1.06754584e-03, -2.70645706e-03, 1.14001752e-06]
+# [-4.85114666e-04, -2.79346829e-06, -1.57814286e-03, -2.89688008e-03, 3.61083367e-07]
