@@ -350,9 +350,9 @@ scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, Lambda/2./Range
 PZT_scaling = np.array([V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, \
                         V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, V_DAC_max/phi_CM_PZT_max])
 pop_per_gen = 350
-Sz = 300    # number of z_CM scan steps
+N_CM_STEPS = 300    # number of z_CM scan steps
 num_generations = 25
-num_params = len(scale_params)
+num_params = len(scale_params) - 1
 num_parents_mating = pop_per_gen // 10  # 10% of new population are parents
 num_offsprings_per_pair = 2 * (pop_per_gen - num_parents_mating) // num_parents_mating + 1
 # after each iteration, range shrinks by
@@ -367,7 +367,12 @@ Timeout = 500 # microseconds
 # Initial exposure in microsecs
 Exposure = 50.
 # Exposure reduction factor at each occurance of saturation
+ENSURE_UNSATURATED = False
 Exposure_red_factor = 0.6
+
+# best parent
+R_LAST_BEST = 0.
+BEST_IMG = np.zeros((n_pixl, n_pixl))
 
 # Mode params
 SEPARATION = 5
@@ -417,11 +422,10 @@ def read_mode(Img):
 #     return im_new
 
 def Capture_image(Camera, timeout):
-    Dat = Camera.GrabOne(timeout)
-    img = Dat.Array
-    return img
-
-def Capture_image2(Camera, timeout):
+    ## Old method
+    # Dat = Camera.GrabOne(timeout)
+    # img = Dat.Array
+    ## New method
     # attempt 5 times to retrieve an image
     for j in range(5):
         if Camera.IsGrabbing():
@@ -447,11 +451,11 @@ def sample_d(Rng, shape=pop_size, first_sample=False):
     O/P shape : pop_size
     """
     delta = np.random.uniform(low=-Rng, high=Rng, size=shape)
-    delta[:,shape[1]-1] *= Range_orig/Rng # always scan full FSR range
-    if first_sample:
-        # CM pzt does not take -ve values
-        i_n = np.where(delta[:,shape[1]-1] < 0.)
-        delta[:,shape[1]-1][i_n] += Range_orig
+    # delta[:,shape[1]-1] *= Range_orig/Rng # always scan full FSR range
+    # if first_sample:
+    #     # CM pzt does not take -ve values
+    #     i_n = np.where(delta[:,shape[1]-1] < 0.)
+    #     delta[:,shape[1]-1][i_n] += Range_orig
     delta *= scale_params
     return delta
 
@@ -499,70 +503,64 @@ def Set_Voltage(Beam_status, Bus):
     except:
         print('Error! Failed to set voltages: ', ip_V)
 
-def Reward_fn(Beam_status, Camera, Bus, dummy_reward=False):
-    global Exposure
-    # dummy_reward = True
-    if dummy_reward:
-        return np.random.randint(255), np.zeros((n_pixl,n_pixl))
-    else:
-        Set_Voltage(Beam_status, Bus)
+def Max_Power_image_in_FSR(Beam_status, Camera, Bus):
+    # scan full FSR
+    dCMphi = Lambda / N_CM_STEPS
+    Zsteps = np.arange(0., Lambda, dCMphi)
+    im_array = np.zeros((n_pixl,n_pixl,len(Zsteps)))
+    for j in Zsteps:
+        Set_Voltage(np.append(Beam_status, Zsteps[j]), Bus)
         # reward fn as total power in the image
-        Img1 = Capture_image2(Camera, Timeout)
+        Img1 = Capture_image(Camera, Timeout)
         # while saturated, keep reducing the exposure
-        # while Img1.max() >= 254:
-        #     plt.imshow(Img1[::-1], cmap=cm.binary_r)
-        #     plt.colorbar()
-        #     plt.show()
-        #     print('Image saturated! Max power: {}'.format(Img1.max()))
-        #     Exposure = Exposure*Exposure_red_factor
-        #     Camera.ExposureTimeAbs = Exposure
-        #     Img1 = Capture_image2(Camera, Timeout)
-        #     print('Exposure updated to {} microsec. Max power in image" {}'.format(Exposure, Img1.max()))
-        #     plt.imshow(Img1[::-1], cmap=cm.binary_r)
-        #     plt.colorbar()
-        #     plt.show()
-        # finding the mode
-        Mode = Find_mode2(Img1, separation1=SEPARATION, Sigma1=SIGMA, Width=WIDTH, thresh=THRESH, corner=0)
-        # R_fn1 = Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)
-        R_fn1 = 2e4*Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)/Exposure
-        return R_fn1, Img1
-    
-def Reward_fn2(Beam_status, Camera, Bus, dummy_reward=False):
-    global Exposure
-    # dummy_reward = True
-    if dummy_reward:
-        return np.random.randint(255), np.zeros((n_pixl,n_pixl))
-    else:
-        Set_Voltage(Beam_status, Bus)
-        # reward fn as total power in the image
-        Img1 = Capture_image2(Camera, Timeout)
-        if Img1.max() >= 254:
+        while Img1.max() >= 254:
             plt.imshow(Img1[::-1], cmap=cm.binary_r)
             plt.colorbar()
             plt.show()
-        # while saturated, keep reducing the exposure
-        # while Img1.max() >= 254:
-        #     plt.imshow(Img1[::-1], cmap=cm.binary_r)
-        #     plt.colorbar()
-        #     plt.show()
-        #     print('Image saturated! Max power: {}'.format(Img1.max()))
-        #     Exposure = Exposure*Exposure_red_factor
-        #     Camera.ExposureTimeAbs = Exposure
-        #     Img1 = Capture_image2(Camera, Timeout)
-        #     print('Exposure updated to {} microsec. Max power in image" {}'.format(Exposure, Img1.max()))
-        #     plt.imshow(Img1[::-1], cmap=cm.binary_r)
-        #     plt.colorbar()
-        #     plt.show()
-        # finding chisqr based reward function
-        R_fn1 = Img1.sum()/Exposure/sigmoid(chi_sq(Img1))
-        return R_fn1, Img1
+            print('Image saturated! Max power: {}'.format(Img1.max()))
+            if ENSURE_UNSATURATED:
+                Exposure = Exposure*Exposure_red_factor
+                Camera.ExposureTimeAbs = Exposure
+                Img1 = Capture_image(Camera, Timeout)
+                print('Exposure updated to {} microsec. Max power in image" {}'.format(Exposure, Img1.max()))
+                plt.imshow(Img1[::-1], cmap=cm.binary_r)
+                plt.colorbar()
+                plt.show()
+            else: break
+        im_array[:,:,j] = Img1
+    # pick the image with max power
+    imaxpowr = np.argmax(im_array.sum(axis=(0,1)))
+    Imgmax = im_array[:,:,imaxpowr]
+    return Imgmax
+
+def Reward_fn(Img1):
+    # option 1
+    # # finding the mode
+    # Mode = Find_mode2(Img1, separation1=SEPARATION, Sigma1=SIGMA, Width=WIDTH, thresh=THRESH, corner=0)
+    # # R_fn1 = Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)
+    # R_fn1 = 2e4*Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)/Exposure
+    # option 2
+    # finding chisqr based reward function
+    R_fn1 = Img1.sum()/Exposure/sigmoid(chi_sq(Img1))
+    return R_fn1
 
 def Reward(Beam_status, pop_deltas, step, Camera, Bus):
+    global Exposure, BEST_IMG, R_LAST_BEST
     # take the delta step
     Beam_status += step
     # cumulatively subtracting each delta step from all deltas
     pop_deltas -= step
-    R_new, Img = Reward_fn2(Beam_status, Camera, Bus)
+    # get image
+    dummy_reward = False
+    if dummy_reward:
+        return np.random.randint(255), np.zeros((n_pixl,n_pixl))
+    else:
+        Img = Max_Power_image_in_FSR(Beam_status, Camera, Bus)
+        # reward for the image
+        R_new = Reward_fn(Img)
+        if R_new > R_LAST_BEST:
+            BEST_IMG = Img
+            R_LAST_BEST = R_new
     return Beam_status, pop_deltas, R_new, Img
 
 def calc_pop_fitness(Current_beam_status, New_pop_deltas, fitness, Camera, Bus, only_offsprings=False):
@@ -570,10 +568,6 @@ def calc_pop_fitness(Current_beam_status, New_pop_deltas, fitness, Camera, Bus, 
     Calculating the fitness value of each solution in the current population.
     Also returns the current beam location (after adding the steps taken so far)
     """
-    # if only_offsprings:
-    #     range_vals = range(num_parents_mating, pop_per_gen)
-    # else:
-    #     range_vals = range(pop_per_gen)
     range_vals = range(pop_per_gen)
     for ii in range_vals:
         # # take the delta step
@@ -590,7 +584,7 @@ def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, C
     producing the offspring of the next generation.
     """
     img_is_saturated = False
-    Img = []
+    # Img = []
     parents = np.empty((num_parents_mating, num_params))
     isort = np.argsort(fitness)[::-1]
     parents_fitness = fitness[isort][:num_parents_mating]
@@ -598,22 +592,22 @@ def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, C
     if show_the_best:
         t1 = time.time() - t0
         print('Time: {}, Fittest Parent: {}, Fitness: {}'.format(t1, Beam_status+parents[0], parents_fitness[0]))
-        Beam_status, parents, _, Img = Reward(Beam_status, parents, parents[0], Camera, Bus)
-        if Img.max() == 255:
+        # Beam_status, parents, _, Img = Reward(Beam_status, parents, parents[0], Camera, Bus)
+        if BEST_IMG.max() == 255:
             img_is_saturated = True
-        plt.imshow(Img, cmap=cm.binary_r)
+        plt.imshow(BEST_IMG, cmap=cm.binary_r)
         plt.colorbar()
         if save_best:
             if gen < 10:
-                plt.savefig(ImagesFolder + '/Gen_0%d_time_%d_Power_%1.2f_alignments_%f_%f_%f_%f_endMirror_%f.png' \
+                plt.savefig(ImagesFolder + '/Gen_0%d_time_%d_Power_%1.2f_alignments_%f_%f_%f_%f.png' \
                      %(gen, (t1), parents_fitness[0], parents[0][0], \
-                       parents[0][1], parents[0][2], parents[0][3], parents[0][4]))
+                       parents[0][1], parents[0][2], parents[0][3]))
             else:
-                plt.savefig(ImagesFolder + '/Gen_%d_time_%d_Power_%1.2f_alignments_%f_%f_%f_%f_endMirror_%f.png' \
+                plt.savefig(ImagesFolder + '/Gen_%d_time_%d_Power_%1.2f_alignments_%f_%f_%f_%f.png' \
                      %(gen, (t1), parents_fitness[0], parents[0][0], \
-                       parents[0][1], parents[0][2], parents[0][3], parents[0][4]))
+                       parents[0][1], parents[0][2], parents[0][3]))
         plt.show()
-    return Beam_status, parents, parents_fitness, img_is_saturated, Img
+    return Beam_status, parents, parents_fitness, img_is_saturated, BEST_IMG
 
 def get_offsprings_Uniform(pairs, parents, offspring_size):
     """create offsprings using uniform crossover"""
