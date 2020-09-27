@@ -349,7 +349,7 @@ d2 = 0.0884
 scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, Lambda/2./Range_orig])   # dist bet two peaks is lambda/2; taking a slightly higher range lambda/1.5
 PZT_scaling = np.array([V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, \
                         V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, V_DAC_max/phi_CM_PZT_max])
-pop_per_gen = 200
+pop_per_gen = 350
 Sz = 300    # number of z_CM scan steps
 num_generations = 25
 num_params = len(scale_params)
@@ -362,15 +362,18 @@ print('shrink factor: ', shrink_factor)
 pop_size = (pop_per_gen,num_params) # The population will have sol_per_pop chromosome \
 # where each chromosome has num_weights genes.
 fitness = np.empty(pop_per_gen)
-
-# camera exposure (check if right command!)
-Exposure = 300 # microseconds
+# timeout for image retrieval
+Timeout = 500 # microseconds
+# Initial exposure in microsecs
+Exposure = 50.
+# Exposure reduction factor at each occurance of saturation
+Exposure_red_factor = 0.6
 
 # Mode params
 SEPARATION = 5
 SIGMA = 1
-WIDTH = 10
-THRESH = 0.5
+WIDTH = 20
+THRESH = 0.3
 
 # Digital locking
 P_thresh = 0.9 # thresh wrt max power that has to be maintained
@@ -380,6 +383,8 @@ z_step = 1e-8
 locking_loop_on = False
 direction = 1
 
+def sigmoid(x):
+    return 10./(1.+np.exp(-x))
 
 def read_mode(Img):
     Img /= np.max(Img)
@@ -411,9 +416,28 @@ def read_mode(Img):
 #     im_new = im_new[0,:,:,0]
 #     return im_new
 
-def Capture_image(exposure, Camera):
-    Dat = Camera.GrabOne(exposure)
+def Capture_image(Camera, timeout):
+    Dat = Camera.GrabOne(timeout)
     img = Dat.Array
+    return img
+
+def Capture_image2(Camera, timeout):
+    # attempt 5 times to retrieve an image
+    for j in range(5):
+        if Camera.IsGrabbing():
+            # Wait for an image and then retrieve it. A timeout of 5000 ms is used.
+            grabResult = Camera.RetrieveResult(timeout, pylon.TimeoutHandling_ThrowException)
+        else:
+            print("Camera didn't grab image..")
+            continue
+        # Image grabbed successfully?
+        if grabResult.GrabSucceeded():
+            # Access the image data
+            img = grabResult.Array
+            break
+        else:
+            print("Error: ", grabResult.ErrorCode, grabResult.ErrorDescription)
+        grabResult.Release()
     return img
 
 def sample_d(Rng, shape=pop_size, first_sample=False):
@@ -476,17 +500,61 @@ def Set_Voltage(Beam_status, Bus):
         print('Error! Failed to set voltages: ', ip_V)
 
 def Reward_fn(Beam_status, Camera, Bus, dummy_reward=False):
+    global Exposure
     # dummy_reward = True
     if dummy_reward:
         return np.random.randint(255), np.zeros((n_pixl,n_pixl))
     else:
         Set_Voltage(Beam_status, Bus)
         # reward fn as total power in the image
-        Img1 = Capture_image(Exposure, Camera)
+        Img1 = Capture_image2(Camera, Timeout)
+        # while saturated, keep reducing the exposure
+        # while Img1.max() >= 254:
+        #     plt.imshow(Img1[::-1], cmap=cm.binary_r)
+        #     plt.colorbar()
+        #     plt.show()
+        #     print('Image saturated! Max power: {}'.format(Img1.max()))
+        #     Exposure = Exposure*Exposure_red_factor
+        #     Camera.ExposureTimeAbs = Exposure
+        #     Img1 = Capture_image2(Camera, Timeout)
+        #     print('Exposure updated to {} microsec. Max power in image" {}'.format(Exposure, Img1.max()))
+        #     plt.imshow(Img1[::-1], cmap=cm.binary_r)
+        #     plt.colorbar()
+        #     plt.show()
         # finding the mode
         Mode = Find_mode2(Img1, separation1=SEPARATION, Sigma1=SIGMA, Width=WIDTH, thresh=THRESH, corner=0)
         # R_fn1 = Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)
-        R_fn1 = 100.*Img1.max()/n_pixl**2./(Mode[0]+Mode[1]+1.)
+        R_fn1 = 2e4*Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)/Exposure
+        return R_fn1, Img1
+    
+def Reward_fn2(Beam_status, Camera, Bus, dummy_reward=False):
+    global Exposure
+    # dummy_reward = True
+    if dummy_reward:
+        return np.random.randint(255), np.zeros((n_pixl,n_pixl))
+    else:
+        Set_Voltage(Beam_status, Bus)
+        # reward fn as total power in the image
+        Img1 = Capture_image2(Camera, Timeout)
+        if Img1.max() >= 254:
+            plt.imshow(Img1[::-1], cmap=cm.binary_r)
+            plt.colorbar()
+            plt.show()
+        # while saturated, keep reducing the exposure
+        # while Img1.max() >= 254:
+        #     plt.imshow(Img1[::-1], cmap=cm.binary_r)
+        #     plt.colorbar()
+        #     plt.show()
+        #     print('Image saturated! Max power: {}'.format(Img1.max()))
+        #     Exposure = Exposure*Exposure_red_factor
+        #     Camera.ExposureTimeAbs = Exposure
+        #     Img1 = Capture_image2(Camera, Timeout)
+        #     print('Exposure updated to {} microsec. Max power in image" {}'.format(Exposure, Img1.max()))
+        #     plt.imshow(Img1[::-1], cmap=cm.binary_r)
+        #     plt.colorbar()
+        #     plt.show()
+        # finding chisqr based reward function
+        R_fn1 = Img1.sum()/Exposure/sigmoid(chi_sq(Img1))
         return R_fn1, Img1
 
 def Reward(Beam_status, pop_deltas, step, Camera, Bus):
@@ -494,7 +562,7 @@ def Reward(Beam_status, pop_deltas, step, Camera, Bus):
     Beam_status += step
     # cumulatively subtracting each delta step from all deltas
     pop_deltas -= step
-    R_new, Img = Reward_fn(Beam_status, Camera, Bus)
+    R_new, Img = Reward_fn2(Beam_status, Camera, Bus)
     return Beam_status, pop_deltas, R_new, Img
 
 def calc_pop_fitness(Current_beam_status, New_pop_deltas, fitness, Camera, Bus, only_offsprings=False):
@@ -604,3 +672,37 @@ def jump_2_fundamental(Beam_status, pop_deltas, Mode, Camera, Bus, reverse=False
 
 # Fundamental mode position is [5.37932319e-04, 3.33051668e-04, -1.06754584e-03, -2.70645706e-03, 1.14001752e-06]
 # [-4.85114666e-04, -2.79346829e-06, -1.57814286e-03, -2.89688008e-03, 3.61083367e-07]
+
+def mean_sigma(pdf_x):
+    # mean
+    xx = np.arange(0.5, len(pdf_x), 1.) # centres of pixels
+    m = np.sum(pdf_x*xx)/pdf_x.sum()
+    # variance
+    var = np.sum((xx-m)**2.)/(len(xx)-1.)
+    return m, var
+
+def get_mean_sigmax_sigmay(Img):
+    # x
+    px = np.sum(Img, axis=0)
+    x_mean, x_var = mean_sigma(px)
+    # y
+    py = np.sum(Img, axis=1)
+    y_mean, y_var = mean_sigma(py)
+    return (x_mean, y_mean), (x_var, y_var)
+
+def Gauss(mu, var, Img):
+    # axes sampled at pixel centres
+    x, y = np.meshgrid(np.arange(0.5, Img.shape[1], 1.), 
+                       np.arange(0.5, Img.shape[0], 1.))
+    return np.exp(-((x-mu[0])**2./2./var[0] + (y-mu[1])**2./2./var[1]))
+
+def chi_sq(Img):
+    # get mean and variance
+    mean, var = get_mean_sigmax_sigmay(Img)
+    # fit gaussian
+    g = Gauss(mean, var, Img)
+    # chi sqr
+    scale_up = Img.shape[0] * Img.shape[1]
+    chisqr = scale_up*(g/g.sum() - Img/Img.sum())**2.
+    return chisqr.sum()
+
