@@ -303,6 +303,7 @@ import sys
 
 # Initialization
 n_pixl = 128
+imdim = (540,720)
 RepoDir = '/home/controls/Beam_auto_alignment'
 # RepoDir = '/home/user1/Dropbox/Academic/WORK/Beam_auto_alignment'
 ImagesFolder = RepoDir + '/Data/Actual_cavity_Fittest_points_per_gen_' + \
@@ -349,8 +350,8 @@ d2 = 0.0884
 scale_params = np.array([waist/d1, waist/d1, waist/d2, waist/d2, Lambda/2./Range_orig])   # dist bet two peaks is lambda/2; taking a slightly higher range lambda/1.5
 PZT_scaling = np.array([V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, \
                         V_DAC_max/phi_SM_max, V_DAC_max/phi_SM_max, V_DAC_max/phi_CM_PZT_max])
-pop_per_gen = 350
-N_CM_STEPS = 300    # number of z_CM scan steps
+pop_per_gen = 70
+N_CM_STEPS = 30    # number of z_CM scan steps
 num_generations = 25
 num_params = len(scale_params) - 1
 num_parents_mating = pop_per_gen // 10  # 10% of new population are parents
@@ -361,30 +362,29 @@ print('shrink factor: ', shrink_factor)
 # Defining the population size.
 pop_size = (pop_per_gen,num_params) # The population will have sol_per_pop chromosome \
 # where each chromosome has num_weights genes.
-fitness = np.empty(pop_per_gen)
 # timeout for image retrieval
 Timeout = 500 # microseconds
 # Initial exposure in microsecs
-Exposure = 50.
+Exposure = 80.
 # Exposure reduction factor at each occurance of saturation
 ENSURE_UNSATURATED = False
 Exposure_red_factor = 0.6
 
 # best parent
 R_LAST_BEST = 0.
-BEST_IMG = np.zeros((n_pixl, n_pixl))
+BEST_IMG = []
 
 # Mode params
 SEPARATION = 5
 SIGMA = 1
-WIDTH = 20
+WIDTH = 40
 THRESH = 0.3
 
 # Digital locking
 P_thresh = 0.9 # thresh wrt max power that has to be maintained
 P_max = 300.
 P_old = 0.
-z_step = 1e-8
+z_step = 1e-9
 locking_loop_on = False
 direction = 1
 
@@ -456,7 +456,7 @@ def sample_d(Rng, shape=pop_size, first_sample=False):
     #     # CM pzt does not take -ve values
     #     i_n = np.where(delta[:,shape[1]-1] < 0.)
     #     delta[:,shape[1]-1][i_n] += Range_orig
-    delta *= scale_params
+    delta *= scale_params[:shape[1]]
     return delta
 
 def scan_cavity(Beam_status, pop_deltas, Rng, Size, Camera, Bus, show_fig=False):
@@ -507,8 +507,8 @@ def Max_Power_image_in_FSR(Beam_status, Camera, Bus):
     # scan full FSR
     dCMphi = Lambda / N_CM_STEPS
     Zsteps = np.arange(0., Lambda, dCMphi)
-    im_array = np.zeros((n_pixl,n_pixl,len(Zsteps)))
-    for j in Zsteps:
+    im_array = np.zeros((imdim[0],imdim[1],len(Zsteps)))
+    for j in range(N_CM_STEPS):
         Set_Voltage(np.append(Beam_status, Zsteps[j]), Bus)
         # reward fn as total power in the image
         Img1 = Capture_image(Camera, Timeout)
@@ -535,13 +535,15 @@ def Max_Power_image_in_FSR(Beam_status, Camera, Bus):
 
 def Reward_fn(Img1):
     # option 1
-    # # finding the mode
-    # Mode = Find_mode2(Img1, separation1=SEPARATION, Sigma1=SIGMA, Width=WIDTH, thresh=THRESH, corner=0)
-    # # R_fn1 = Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)
-    # R_fn1 = 2e4*Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)/Exposure
+    # finding the mode
+    Mode = Find_mode2(Img1, separation1=SEPARATION, Sigma1=SIGMA, Width=WIDTH, thresh=THRESH, corner=0)
+    # R_fn1 = Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)
+    R_fn1 = 2e4*Img1.sum()/n_pixl**2./(Mode[0]+Mode[1]+1.)**2./Exposure
     # option 2
     # finding chisqr based reward function
-    R_fn1 = Img1.sum()/Exposure/sigmoid(chi_sq(Img1))
+    # R_fn1 = 100*(sigmoid(Img1.sum()/Exposure/chi_sq(Img1)/1000.) + 0.5)
+    # option 3
+    # R_fn1 = Img1.sum()/Exposure
     return R_fn1
 
 def Reward(Beam_status, pop_deltas, step, Camera, Bus):
@@ -561,13 +563,16 @@ def Reward(Beam_status, pop_deltas, step, Camera, Bus):
         if R_new > R_LAST_BEST:
             BEST_IMG = Img
             R_LAST_BEST = R_new
+            print('Best reward: ', R_LAST_BEST)
     return Beam_status, pop_deltas, R_new, Img
 
-def calc_pop_fitness(Current_beam_status, New_pop_deltas, fitness, Camera, Bus, only_offsprings=False):
+def calc_pop_fitness(Current_beam_status, New_pop_deltas, Camera, Bus, only_offsprings=False):
     """
     Calculating the fitness value of each solution in the current population.
     Also returns the current beam location (after adding the steps taken so far)
     """
+    fitness = np.empty(pop_per_gen)
+    R_best_gen = 0.
     range_vals = range(pop_per_gen)
     for ii in range_vals:
         # # take the delta step
@@ -575,16 +580,21 @@ def calc_pop_fitness(Current_beam_status, New_pop_deltas, fitness, Camera, Bus, 
         # # cumulatively subtracting each delta step from all deltas
         # New_pop_deltas -= New_pop_deltas[ii]
         # fitness[ii], _ = Reward_fn(Current_beam_status, Camera, Bus)
-        Current_beam_status, New_pop_deltas, fitness[ii], _ = Reward(Current_beam_status, New_pop_deltas, New_pop_deltas[ii], Camera, Bus)
-    return Current_beam_status, New_pop_deltas, fitness
+        Current_beam_status, New_pop_deltas, fitness[ii], Img1 = Reward(Current_beam_status, New_pop_deltas, New_pop_deltas[ii], Camera, Bus)
+        if ii == 0:
+            BEST_IMG_OF_GEN = Img1
+        else:
+            if fitness[ii] > R_best_gen:
+                R_best_gen = fitness[ii]
+                BEST_IMG_OF_GEN = Img1
+    return Current_beam_status, New_pop_deltas, fitness, BEST_IMG_OF_GEN
 
-def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, Camera, Bus, show_the_best=False, save_best=False):
+def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, Camera, Bus, BEST_IMG_OF_GEN, show_the_best=False, save_best=False):
     """
     Selecting the best candidates in the current generation as parents for 
     producing the offspring of the next generation.
     """
     img_is_saturated = False
-    # Img = []
     parents = np.empty((num_parents_mating, num_params))
     isort = np.argsort(fitness)[::-1]
     parents_fitness = fitness[isort][:num_parents_mating]
@@ -593,21 +603,22 @@ def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, C
         t1 = time.time() - t0
         print('Time: {}, Fittest Parent: {}, Fitness: {}'.format(t1, Beam_status+parents[0], parents_fitness[0]))
         # Beam_status, parents, _, Img = Reward(Beam_status, parents, parents[0], Camera, Bus)
-        if BEST_IMG.max() == 255:
+        if BEST_IMG_OF_GEN.max() == 255:
             img_is_saturated = True
-        plt.imshow(BEST_IMG, cmap=cm.binary_r)
+        plt.imshow(BEST_IMG_OF_GEN, cmap=cm.binary_r)
         plt.colorbar()
+        print(parents_fitness[0])
         if save_best:
             if gen < 10:
-                plt.savefig(ImagesFolder + '/Gen_0%d_time_%d_Power_%1.2f_alignments_%f_%f_%f_%f.png' \
+                plt.savefig(ImagesFolder + '/Gen_0%d_time_%1.2e_Power_%1.2f_alignments_%f_%f_%f_%f.png' \
                      %(gen, (t1), parents_fitness[0], parents[0][0], \
                        parents[0][1], parents[0][2], parents[0][3]))
             else:
-                plt.savefig(ImagesFolder + '/Gen_%d_time_%d_Power_%1.2f_alignments_%f_%f_%f_%f.png' \
+                plt.savefig(ImagesFolder + '/Gen_%.2e_time_%d_Power_%1.2f_alignments_%f_%f_%f_%f.png' \
                      %(gen, (t1), parents_fitness[0], parents[0][0], \
                        parents[0][1], parents[0][2], parents[0][3]))
         plt.show()
-    return Beam_status, parents, parents_fitness, img_is_saturated, BEST_IMG
+    return Beam_status, parents, parents_fitness, img_is_saturated, BEST_IMG_OF_GEN
 
 def get_offsprings_Uniform(pairs, parents, offspring_size):
     """create offsprings using uniform crossover"""
