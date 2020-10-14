@@ -95,8 +95,9 @@ Exposure_red_factor = 0.6
 
 # best parent
 BEST_REWARD = 0.
-BEST_IMG = []
 BEST_BEAM_STATUS = []
+BEST_IMG = []
+BEST_IMG_OF_GEN = []
 
 # Mode params
 SEPARATION = 5
@@ -287,7 +288,7 @@ def Reward(Beam_status, pop_deltas, step, Camera, Bus):
         if R_new > BEST_REWARD:
             BEST_IMG = Img
             BEST_REWARD = R_new
-            BEST_BEAM_STATUS = Beam_status
+            BEST_BEAM_STATUS = Beam_status.copy()
             print('Best reward: ', BEST_REWARD)
             print('Best alignment: ', BEST_BEAM_STATUS)
     return Beam_status, pop_deltas, R_new, Img
@@ -297,6 +298,7 @@ def calc_pop_fitness(Current_beam_status, New_pop_deltas, Camera, Bus, only_offs
     Calculating the fitness value of each solution in the current population.
     Also returns the current beam location (after adding the steps taken so far)
     """
+    global BEST_IMG_OF_GEN
     fitness = np.empty(pop_per_gen)
     R_best_gen = 0.
     range_vals = range(pop_per_gen)
@@ -315,7 +317,7 @@ def calc_pop_fitness(Current_beam_status, New_pop_deltas, Camera, Bus, only_offs
                 BEST_IMG_OF_GEN = Img1
     return Current_beam_status, New_pop_deltas, fitness
 
-def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, Camera, Bus, BEST_IMG_OF_GEN, show_the_best=False, save_best=False):
+def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, Camera, Bus, Best_im_gen, show_the_best=False, save_best=False):
     """
     Selecting the best candidates in the current generation as parents for 
     producing the offspring of the next generation.
@@ -329,9 +331,9 @@ def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, C
         t1 = time.time() - t0
         print('Time: {}, Fittest Parent: {}, Fitness: {}'.format(t1, Beam_status+parents[0], parents_fitness[0]))
         # Beam_status, parents, _, Img = Reward(Beam_status, parents, parents[0], Camera, Bus)
-        if BEST_IMG_OF_GEN.max() == 255:
+        if Best_im_gen.max() == 255:
             img_is_saturated = True
-        plt.imshow(BEST_IMG_OF_GEN, cmap=cm.binary_r)
+        plt.imshow(Best_im_gen, cmap=cm.binary_r)
         plt.colorbar()
         print(parents_fitness[0])
         if save_best:
@@ -344,7 +346,7 @@ def select_mating_pool(Beam_status, pop, fitness, num_parents_mating, t0, gen, C
                      %(gen, (t1), parents_fitness[0], parents[0][0], \
                        parents[0][1], parents[0][2], parents[0][3]))
         plt.show()
-    return Beam_status, parents, parents_fitness, img_is_saturated, BEST_IMG_OF_GEN
+    return Beam_status, parents, parents_fitness, img_is_saturated
 
 def get_offsprings_Uniform(pairs, parents, offspring_size):
     """create offsprings using uniform crossover"""
