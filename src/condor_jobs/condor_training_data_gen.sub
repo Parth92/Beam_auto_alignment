@@ -10,10 +10,9 @@ request_memory = 4096
 request_cpus = 1
 notification = never
 getenv = true
+accounting_group = ligo.sim.o2.cbc.explore.test
 Should_transfer_files = Yes
 +MaxHours = 240
 
-arg1=--i-start
-arg2=--i-end
 Arguments = $(arg1) $(ISTART) $(arg2) $(IEND)
-Queue ISTART,IEND from /home/shreejit.jadhav/WORK/Beam_auto_alignment/src/condor_jobs/condor_input_arg_data.txt
+Queue arg1,ISTART,arg2,IEND from /home/shreejit.jadhav/WORK/Beam_auto_alignment/src/condor_jobs/condor_input_arg_data.txt
