@@ -2,7 +2,7 @@
 
 # Generate a txt file containing input args:
 # import numpy as np
-# np.savetxt('condor_input_arg_data.txt', np.append(np.arange(0, 20000, 100), np.arange(100, 20100, 100)).reshape(200,2), fmt='%d', delimiter=',')
+# np.savetxt('condor_input_arg_data.txt', np.append(np.append(np.append(np.repeat('--i-start', 200).reshape(200,1), np.arange(0, 20000, 100).reshape(200,1).astype('str'), axis=1), np.repeat('--i-end', 200).reshape(200,1), axis=1), np.arange(100, 20100, 100).reshape(200,1).astype('str'), axis=1), fmt='%s', delimiter=',')
 
 import pykat, os, argparse
 import numpy as np
