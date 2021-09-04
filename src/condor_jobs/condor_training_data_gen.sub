@@ -1,0 +1,19 @@
+Universe = vanilla
+Executable = /home/shreejit.jadhav/WORK/Beam_auto_alignment/src/executable_training_data_gen_state_sensing_NN.py
+Output = /home/shreejit.jadhav/WORK/Beam_auto_alignment/src/condor_jobs/log/training_data_gen_state_sensing_NN_$(ISTART)-$(IEND).out.$(Cluster).$(Process)
+Error = /home/shreejit.jadhav/WORK/Beam_auto_alignment/src/condor_jobs/log/training_data_gen_state_sensing_NN_$(ISTART)-$(IEND).err.$(Cluster).$(Process)
+Log = /home/shreejit.jadhav/WORK/Beam_auto_alignment/src/condor_jobs/log/training_data_gen_state_sensing_NN_$(ISTART)-$(IEND).log.$(Cluster).$(Process)
+
+
+requirements = ( OpSys == "LINUX" )
+request_memory = 4096
+request_cpus = 1
+notification = never
+getenv = true
+Should_transfer_files = Yes
++MaxHours = 240
+
+arg1=--i-start
+arg2=--i-end
+Arguments = $(arg1) $(ISTART) $(arg2) $(IEND)
+Queue ISTART,IEND from /home/shreejit.jadhav/WORK/Beam_auto_alignment/src/condor_jobs/condor_input_arg_data.txt

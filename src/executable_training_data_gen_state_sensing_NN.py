@@ -15,7 +15,9 @@ from time import time
 parser = argparse.ArgumentParser()
 parser.add_argument("--i-start", help="start index", type=int)
 parser.add_argument("--i-end", help="end index", type=int)
-parser.add_argument("--output-data-folder", help="Path to the directory where hdf file is to be stored.")
+parser.add_argument("--output-data-folder", 
+    default='/home/shreejit.jadhav/WORK/Beam_auto_alignment/Data/CavityScanData', 
+    help="Path to the directory where hdf file is to be stored.")
 
 args = parser.parse_args()
 
@@ -228,7 +230,6 @@ SHOW_IMSTACK=False
 SHOW_SCAN=False
 SHOW_CCD_IMAGE=False
 
-args.output_data_folder = '/home/shreejit.jadhav/WORK/Beam_auto_alignment/Data/CavityScanData'
 if not os.path.isdir(args.output_data_folder):
     os.mkdir(args.output_data_folder)
 
