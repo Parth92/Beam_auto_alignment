@@ -218,7 +218,7 @@ d1 = 0.35+0.0884
 d2 = 0.0884
 dist_to_w = {'SM1': d1, 'SM2': d2}
 # number of alignments for generating training data
-samples = 20000
+samples = int(args.i_end - args.i_start)
 # no of images in cavity scan image stack
 N_IMS=7
 # other vars
