@@ -249,7 +249,7 @@ kat = base.deepcopy()
 
 # randomly sample the range of SM1 and SM2 in (x,y) space
 t0 = time()
-for i in range(args.i_start, args.i_end):
+for i in range(samples):
     print(i, time()-t0)
     # collect stack of images and relative spacings for peaks in the cavity scan (arranged in decreasing order of peak pixl power)
     imstack[i], phim[i] = get_scan_imstack(kat, i, beam_status, Sigma=SIGMA, n_ims=N_IMS, n_pxls=N_PXLS, pixl_thresh=NOISE_AMP)
