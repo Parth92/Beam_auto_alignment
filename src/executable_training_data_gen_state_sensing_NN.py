@@ -2,7 +2,7 @@
 
 # Generate a txt file containing input args:
 # import numpy as np
-# np.savetxt('condor_input_arg_data.txt', np.append(np.append(np.append(np.repeat('--i-start', 200).reshape(200,1), np.arange(0, 20000, 100).reshape(200,1).astype('str'), axis=1), np.repeat('--i-end', 200).reshape(200,1), axis=1), np.arange(100, 20100, 100).reshape(200,1).astype('str'), axis=1), fmt='%s', delimiter=',')
+# np.savetxt('condor_input_arg_data.txt', np.append(np.append(np.append(np.append(np.append(np.repeat('--i-start', 200).reshape(200,1), np.arange(0, 20000, 100).reshape(200,1).astype('str'), axis=1), np.repeat('--i-end', 200).reshape(200,1), axis=1), np.arange(100, 20100, 100).reshape(200,1).astype('str'), axis=1), np.repeat('--N', 200).reshape(200,1), axis=1), np.repeat('20000', 200).reshape(200,1), axis=1), fmt='%s', delimiter=',')
 
 import pykat, os, argparse
 import numpy as np
@@ -15,6 +15,7 @@ from time import time
 parser = argparse.ArgumentParser()
 parser.add_argument("--i-start", help="start index", type=int)
 parser.add_argument("--i-end", help="end index", type=int)
+parser.add_argument("--N", help="total number of samples to be generated", type=int)
 parser.add_argument("--output-data-folder", 
     default='/home/shreejit.jadhav/WORK/Beam_auto_alignment/Data/CavityScanData', 
     help="Path to the directory where hdf file is to be stored.")
@@ -236,7 +237,7 @@ if not os.path.isdir(args.output_data_folder):
 imstack = np.zeros((samples,N_IMS,N_PXLS,N_PXLS), dtype=np.float16)
 phim = np.zeros((samples,N_IMS-1), dtype=np.float16)
 
-beam_status = {'SM1': {'x': np.random.random(samples), 'y': np.random.random(samples)}, 'SM2': {'x': np.random.random(samples), 'y': np.random.random(samples)}}
+beam_status = {'SM1': {'x': np.random.random(args.N)[args.i_start:args.i_end], 'y': np.random.random(args.N)[args.i_start:args.i_end]}, 'SM2': {'x': np.random.random(args.N)[args.i_start:args.i_end], 'y': np.random.random(args.N)[args.i_start:args.i_end]}}
 
 # random alignments
 for sm in beam_status.keys():
@@ -250,7 +251,7 @@ kat = base.deepcopy()
 # randomly sample the range of SM1 and SM2 in (x,y) space
 t0 = time()
 for i in range(samples):
-    print(i, time()-t0)
+    print(i, time()-t0, 'seconds')
     # collect stack of images and relative spacings for peaks in the cavity scan (arranged in decreasing order of peak pixl power)
     imstack[i], phim[i] = get_scan_imstack(kat, i, beam_status, Sigma=SIGMA, n_ims=N_IMS, n_pxls=N_PXLS, pixl_thresh=NOISE_AMP)
 
