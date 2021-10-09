@@ -9,6 +9,7 @@ Untitled Document 1
 cavity_design.jam
 finding_DAC_on_network.txt
 ml_machine_setup.txt
+src/condor_jobs/log/
 src/Testing/*
 src/modbus/*
 src/__pycache__/*
