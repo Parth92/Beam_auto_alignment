@@ -14,5 +14,5 @@ accounting_group = ligo.sim.o2.cbc.explore.test
 Should_transfer_files = Yes
 +MaxHours = 240
 
-Arguments = $(arg1) $(ISTART) $(arg2) $(IEND)
-Queue arg1,ISTART,arg2,IEND from /home/shreejit.jadhav/WORK/Beam_auto_alignment/src/condor_jobs/condor_input_arg_data.txt
+Arguments = $(arg1) $(ISTART) $(arg2) $(IEND) $(arg3) $(N)
+Queue arg1,ISTART,arg2,IEND,arg3,N from /home/shreejit.jadhav/WORK/Beam_auto_alignment/src/condor_jobs/condor_input_arg_data.txt
