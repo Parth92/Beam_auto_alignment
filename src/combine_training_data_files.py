@@ -30,7 +30,9 @@ data = {}
 # initialize the empty data arrays
 with hp.File(files[0], 'r') as f1:
     for k in f1.keys():
-        shape1 = tuple([len(files)] + list(f1[k].shape))
+        shape1 = list(f1[k].shape)
+        shape1[0] *= len(files)
+        shape1 = tuple(shape1)
         data[k] = comb_file.create_dataset(k, shape=shape1, dtype=f1[k].dtype)
 
 # combine data loop
@@ -38,7 +40,8 @@ for i, f1 in enumerate(files):
     print(i, f1)
     with hp.File(f1, 'r') as ff1:
         for k in comb_file.keys():
-            data[k][i] = ff1[k][()]
+            for j in range(len(ff1[k])):
+                data[k][i*len(ff1[k])+j] = ff1[k][j][()]
 
 comb_file.close()
 
